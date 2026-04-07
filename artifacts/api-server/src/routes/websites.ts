@@ -1,0 +1,278 @@
+import { Router, type IRouter } from "express";
+import { db, websitesTable, monitoredUrlsTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
+import { parseSitemap } from "../utils/sitemapParser";
+import { checkWebsite } from "../utils/checker";
+import { z } from "zod";
+
+const router: IRouter = Router();
+
+// Validation schema for adding a website
+const addWebsiteSchema = z.object({
+  name: z.string().min(1),
+  sitemapUrl: z.string().url(),
+  alertEmail: z.string().email(),
+});
+
+// GET /api/websites — list all monitored websites
+router.get("/websites", async (req, res) => {
+  try {
+    const websites = await db.select().from(websitesTable).orderBy(websitesTable.createdAt);
+    res.json(websites.map(formatWebsite));
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch websites");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/websites — add a new website
+router.post("/websites", async (req, res) => {
+  const parsed = addWebsiteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { name, sitemapUrl, alertEmail } = parsed.data;
+
+  try {
+    // Insert the website record
+    const [website] = await db
+      .insert(websitesTable)
+      .values({ name, sitemapUrl, alertEmail, status: "pending" })
+      .returning();
+
+    // Asynchronously parse the sitemap and insert URLs (fire and forget)
+    parseSitemapAndStore(website.id, sitemapUrl, req.log).catch((err) => {
+      req.log.error({ err, websiteId: website.id }, "Background sitemap parse failed");
+    });
+
+    res.status(201).json(formatWebsite(website));
+  } catch (err) {
+    req.log.error({ err }, "Failed to add website");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /api/websites/:id — get a single website
+router.get("/websites/:id", async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid website ID" });
+    return;
+  }
+
+  try {
+    const [website] = await db
+      .select()
+      .from(websitesTable)
+      .where(eq(websitesTable.id, id));
+
+    if (!website) {
+      res.status(404).json({ error: "Website not found" });
+      return;
+    }
+
+    res.json(formatWebsite(website));
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch website");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// DELETE /api/websites/:id — delete a website
+router.delete("/websites/:id", async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid website ID" });
+    return;
+  }
+
+  try {
+    const [website] = await db
+      .select()
+      .from(websitesTable)
+      .where(eq(websitesTable.id, id));
+
+    if (!website) {
+      res.status(404).json({ error: "Website not found" });
+      return;
+    }
+
+    await db.delete(websitesTable).where(eq(websitesTable.id, id));
+    res.json({ success: true, message: "Website deleted successfully" });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete website");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /api/websites/:id/urls — get all URLs for a website
+router.get("/websites/:id/urls", async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid website ID" });
+    return;
+  }
+
+  const statusFilter = req.query.status as string | undefined;
+
+  try {
+    const [website] = await db
+      .select()
+      .from(websitesTable)
+      .where(eq(websitesTable.id, id));
+
+    if (!website) {
+      res.status(404).json({ error: "Website not found" });
+      return;
+    }
+
+    let urlRows = await db
+      .select()
+      .from(monitoredUrlsTable)
+      .where(eq(monitoredUrlsTable.websiteId, id))
+      .orderBy(monitoredUrlsTable.url);
+
+    // Apply status filter if provided
+    if (statusFilter === "broken") {
+      urlRows = urlRows.filter((r) => r.isBroken);
+    } else if (statusFilter === "ok") {
+      urlRows = urlRows.filter((r) => !r.isBroken);
+    }
+
+    res.json(urlRows.map(formatUrl));
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch website URLs");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/websites/:id/check — manually trigger a check
+router.post("/websites/:id/check", async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid website ID" });
+    return;
+  }
+
+  try {
+    const [website] = await db
+      .select()
+      .from(websitesTable)
+      .where(eq(websitesTable.id, id));
+
+    if (!website) {
+      res.status(404).json({ error: "Website not found" });
+      return;
+    }
+
+    // Run check immediately (synchronous so user can see result)
+    const result = await checkWebsite(id);
+    res.json(result);
+  } catch (err) {
+    req.log.error({ err }, "Failed to trigger manual check");
+    res.status(500).json({ error: "Failed to run check" });
+  }
+});
+
+// GET /api/dashboard/summary — summary stats
+router.get("/dashboard/summary", async (req, res) => {
+  try {
+    const websites = await db.select().from(websitesTable);
+    const totalUrls = websites.reduce((sum, w) => sum + w.totalUrls, 0);
+    const totalBroken = websites.reduce((sum, w) => sum + w.brokenUrls, 0);
+    const websitesWithErrors = websites.filter((w) => w.brokenUrls > 0).length;
+
+    res.json({
+      totalWebsites: websites.length,
+      totalUrls,
+      totalBroken,
+      websitesWithErrors,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch dashboard summary");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Helper: parse sitemap and store URLs in the background
+async function parseSitemapAndStore(
+  websiteId: number,
+  sitemapUrl: string,
+  log: typeof console
+): Promise<void> {
+  try {
+    const urls = await parseSitemap(sitemapUrl);
+
+    if (urls.length > 0) {
+      // Batch insert all URLs
+      await db.insert(monitoredUrlsTable).values(
+        urls.map((url) => ({ websiteId, url }))
+      );
+    }
+
+    await db
+      .update(websitesTable)
+      .set({ totalUrls: urls.length, status: "ok" })
+      .where(eq(websitesTable.id, websiteId));
+
+    log.info?.(`Stored ${urls.length} URLs for website ${websiteId}`);
+  } catch (err) {
+    await db
+      .update(websitesTable)
+      .set({ status: "error" })
+      .where(eq(websitesTable.id, websiteId));
+    throw err;
+  }
+}
+
+// Format website for API response
+function formatWebsite(w: {
+  id: number;
+  name: string;
+  sitemapUrl: string;
+  alertEmail: string;
+  totalUrls: number;
+  brokenUrls: number;
+  status: string;
+  lastCheckedAt: Date | null;
+  createdAt: Date;
+}) {
+  return {
+    id: w.id,
+    name: w.name,
+    sitemapUrl: w.sitemapUrl,
+    alertEmail: w.alertEmail,
+    totalUrls: w.totalUrls,
+    brokenUrls: w.brokenUrls,
+    status: w.status,
+    lastCheckedAt: w.lastCheckedAt?.toISOString() ?? null,
+    createdAt: w.createdAt.toISOString(),
+  };
+}
+
+// Format URL for API response
+function formatUrl(u: {
+  id: number;
+  websiteId: number;
+  url: string;
+  lastStatus: number | null;
+  previousStatus: number | null;
+  isBroken: boolean;
+  lastCheckedAt: Date | null;
+  errorMessage: string | null;
+}) {
+  return {
+    id: u.id,
+    websiteId: u.websiteId,
+    url: u.url,
+    lastStatus: u.lastStatus,
+    previousStatus: u.previousStatus,
+    isBroken: u.isBroken,
+    lastCheckedAt: u.lastCheckedAt?.toISOString() ?? null,
+    errorMessage: u.errorMessage,
+  };
+}
+
+export default router;

@@ -3,13 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: 404 Monitor API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: websites
+    description: Monitored website operations
+  - name: urls
+    description: URL status operations
 paths:
   /healthz:
     get:
@@ -24,6 +28,165 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /websites:
+    get:
+      operationId: getWebsites
+      tags: [websites]
+      summary: List all monitored websites
+      responses:
+        "200":
+          description: List of websites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Website"
+    post:
+      operationId: addWebsite
+      tags: [websites]
+      summary: Add a new website to monitor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddWebsiteRequest"
+      responses:
+        "201":
+          description: Website added successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Website"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /websites/{id}:
+    get:
+      operationId: getWebsite
+      tags: [websites]
+      summary: Get a single website by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Website details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Website"
+        "404":
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteWebsite
+      tags: [websites]
+      summary: Delete a monitored website
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "404":
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /websites/{id}/urls:
+    get:
+      operationId: getWebsiteUrls
+      tags: [urls]
+      summary: Get all URLs for a website
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, broken, ok]
+          description: Filter URLs by status
+      responses:
+        "200":
+          description: List of URLs with their status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MonitoredUrl"
+        "404":
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /websites/{id}/check:
+    post:
+      operationId: triggerCheck
+      tags: [websites]
+      summary: Manually trigger a check for a website
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Check triggered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckResult"
+        "404":
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [websites]
+      summary: Get summary stats for the dashboard
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +197,134 @@ components:
       required:
         - status
 
+    Website:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        sitemapUrl:
+          type: string
+        alertEmail:
+          type: string
+        totalUrls:
+          type: integer
+        brokenUrls:
+          type: integer
+        lastCheckedAt:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        status:
+          type: string
+          enum: [pending, checking, ok, error]
+      required:
+        - id
+        - name
+        - sitemapUrl
+        - alertEmail
+        - totalUrls
+        - brokenUrls
+        - createdAt
+        - status
+
+    AddWebsiteRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        sitemapUrl:
+          type: string
+        alertEmail:
+          type: string
+      required:
+        - name
+        - sitemapUrl
+        - alertEmail
+
+    MonitoredUrl:
+      type: object
+      properties:
+        id:
+          type: integer
+        websiteId:
+          type: integer
+        url:
+          type: string
+        lastStatus:
+          type: integer
+          nullable: true
+        previousStatus:
+          type: integer
+          nullable: true
+        isBroken:
+          type: boolean
+        lastCheckedAt:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+      required:
+        - id
+        - websiteId
+        - url
+        - isBroken
+
+    CheckResult:
+      type: object
+      properties:
+        websiteId:
+          type: integer
+        checkedUrls:
+          type: integer
+        brokenUrls:
+          type: integer
+        newBrokenUrls:
+          type: integer
+        message:
+          type: string
+      required:
+        - websiteId
+        - checkedUrls
+        - brokenUrls
+        - newBrokenUrls
+        - message
+
+    DashboardSummary:
+      type: object
+      properties:
+        totalWebsites:
+          type: integer
+        totalUrls:
+          type: integer
+        totalBroken:
+          type: integer
+        websitesWithErrors:
+          type: integer
+      required:
+        - totalWebsites
+        - totalUrls
+        - totalBroken
+        - websitesWithErrors
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+        - message
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error

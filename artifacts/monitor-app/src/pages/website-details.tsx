@@ -1,0 +1,299 @@
+import { useState } from "react";
+import { useParams } from "wouter";
+import { 
+  useGetWebsite, 
+  useGetWebsiteUrls, 
+  useTriggerCheck,
+  getGetWebsiteQueryKey,
+  getGetWebsiteUrlsQueryKey,
+  getGetDashboardSummaryQueryKey,
+  getGetWebsitesQueryKey
+} from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { formatDistanceToNow, format } from "date-fns";
+import { 
+  Activity, 
+  AlertTriangle, 
+  ArrowLeft, 
+  CheckCircle2, 
+  Clock, 
+  ExternalLink, 
+  Globe, 
+  RefreshCw,
+  Search
+} from "lucide-react";
+import { Link } from "wouter";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { WebsiteStatus } from "@workspace/api-client-react";
+
+export default function WebsiteDetails() {
+  const params = useParams();
+  const id = parseInt(params.id || "0", 10);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  const [statusFilter, setStatusFilter] = useState<"all" | "broken" | "ok">("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [checkResult, setCheckResult] = useState<{ message: string, newBroken: number, checked: number } | null>(null);
+
+  const { data: website, isLoading: loadingWebsite } = useGetWebsite(id, { 
+    query: { enabled: !!id, queryKey: getGetWebsiteQueryKey(id) } 
+  });
+  
+  const { data: urls, isLoading: loadingUrls } = useGetWebsiteUrls(id, { status: statusFilter !== "all" ? statusFilter : undefined }, { 
+    query: { enabled: !!id, queryKey: getGetWebsiteUrlsQueryKey(id, { status: statusFilter !== "all" ? statusFilter : undefined }) } 
+  });
+
+  const triggerCheck = useTriggerCheck();
+
+  const handleRunCheck = () => {
+    triggerCheck.mutate({ id }, {
+      onSuccess: (result) => {
+        setCheckResult({
+          message: result.message,
+          newBroken: result.newBrokenUrls,
+          checked: result.checkedUrls
+        });
+        toast({
+          title: "Check completed",
+          description: result.message,
+        });
+        // Invalidate queries to refresh data
+        queryClient.invalidateQueries({ queryKey: getGetWebsiteQueryKey(id) });
+        queryClient.invalidateQueries({ queryKey: getGetWebsiteUrlsQueryKey(id) });
+        queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetWebsitesQueryKey() });
+      },
+      onError: () => {
+        toast({
+          title: "Check failed",
+          description: "An error occurred while running the check.",
+          variant: "destructive",
+        });
+      }
+    });
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case WebsiteStatus.ok:
+        return <Badge className="bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border-emerald-500/20" variant="outline">OK</Badge>;
+      case WebsiteStatus.error:
+        return <Badge variant="destructive">Error</Badge>;
+      case WebsiteStatus.checking:
+        return <Badge className="bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 border-blue-500/20" variant="outline"><RefreshCw className="w-3 h-3 mr-1 animate-spin" /> Checking</Badge>;
+      case WebsiteStatus.pending:
+      default:
+        return <Badge variant="secondary">Pending</Badge>;
+    }
+  };
+
+  const getUrlStatusBadge = (statusCode: number | null | undefined, isBroken: boolean) => {
+    if (statusCode === null || statusCode === undefined) {
+      return <Badge variant="secondary" className="font-mono text-xs">Unchecked</Badge>;
+    }
+    if (isBroken) {
+      return <Badge variant="destructive" className="font-mono text-xs">{statusCode}</Badge>;
+    }
+    if (statusCode === 200) {
+      return <Badge className="bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border-emerald-500/20 font-mono text-xs" variant="outline">200</Badge>;
+    }
+    return <Badge className="bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border-amber-500/20 font-mono text-xs" variant="outline">{statusCode}</Badge>;
+  };
+
+  const filteredUrls = urls?.filter(u => 
+    u.url.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  if (loadingWebsite) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
+  }
+
+  if (!website) {
+    return (
+      <div className="text-center py-20">
+        <h2 className="text-2xl font-bold text-muted-foreground">Property not found</h2>
+        <Link href="/">
+          <Button variant="link" className="mt-4">Return to Dashboard</Button>
+        </Link>
+      </div>
+    );
+  }
+
+  const isChecking = triggerCheck.isPending || website.status === WebsiteStatus.checking;
+
+  return (
+    <div className="space-y-6 pb-20">
+      <div className="flex items-center space-x-4 mb-6">
+        <Link href="/">
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </Link>
+        <h1 className="text-2xl font-mono font-bold tracking-tight text-foreground flex-1 truncate">
+          {website.name}
+        </h1>
+        {getStatusBadge(website.status)}
+        <Button 
+          onClick={handleRunCheck} 
+          disabled={isChecking}
+          data-testid="button-run-check"
+          className="ml-4 font-mono font-bold"
+        >
+          <RefreshCw className={`mr-2 h-4 w-4 ${isChecking ? 'animate-spin' : ''}`} />
+          {isChecking ? "RUNNING CHECK..." : "RUN CHECK NOW"}
+        </Button>
+      </div>
+
+      {checkResult && (
+        <Alert className={checkResult.newBroken > 0 ? "border-destructive bg-destructive/10" : "border-emerald-500/50 bg-emerald-500/10"}>
+          {checkResult.newBroken > 0 ? <AlertTriangle className="h-4 w-4 text-destructive" /> : <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+          <AlertTitle className="font-mono">{checkResult.message}</AlertTitle>
+          <AlertDescription className="text-muted-foreground mt-1">
+            Checked {checkResult.checked} URLs. Found {checkResult.newBroken} new broken links.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card className="bg-card">
+          <CardContent className="p-6">
+            <div className="flex items-center space-x-2 text-sm font-mono text-muted-foreground mb-2">
+              <Globe className="h-4 w-4" />
+              <span>SITEMAP</span>
+            </div>
+            <a href={website.sitemapUrl} target="_blank" rel="noreferrer" className="text-sm font-medium hover:underline text-primary truncate block" title={website.sitemapUrl}>
+              {new URL(website.sitemapUrl).hostname}
+            </a>
+          </CardContent>
+        </Card>
+        <Card className="bg-card">
+          <CardContent className="p-6">
+            <div className="flex items-center space-x-2 text-sm font-mono text-muted-foreground mb-2">
+              <Clock className="h-4 w-4" />
+              <span>LAST CHECKED</span>
+            </div>
+            <div className="text-sm font-medium">
+              {website.lastCheckedAt ? format(new Date(website.lastCheckedAt), "PP p") : "Never"}
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-card">
+          <CardContent className="p-6">
+            <div className="flex items-center space-x-2 text-sm font-mono text-muted-foreground mb-2">
+              <Activity className="h-4 w-4" />
+              <span>TOTAL URLS</span>
+            </div>
+            <div className="text-2xl font-bold font-mono">{website.totalUrls}</div>
+          </CardContent>
+        </Card>
+        <Card className={website.brokenUrls > 0 ? "border-destructive/50 bg-destructive/5" : "bg-card"}>
+          <CardContent className="p-6">
+            <div className={`flex items-center space-x-2 text-sm font-mono mb-2 ${website.brokenUrls > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+              <AlertTriangle className="h-4 w-4" />
+              <span>BROKEN URLS</span>
+            </div>
+            <div className={`text-2xl font-bold font-mono ${website.brokenUrls > 0 ? "text-destructive" : ""}`}>
+              {website.brokenUrls}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between">
+            <CardTitle className="font-mono">URL Inventory</CardTitle>
+          </div>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4">
+            <Tabs value={statusFilter} onValueChange={(v: any) => setStatusFilter(v)} className="w-full sm:w-auto">
+              <TabsList>
+                <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
+                <TabsTrigger value="broken" data-testid="tab-broken">Broken</TabsTrigger>
+                <TabsTrigger value="ok" data-testid="tab-ok">OK</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Filter URLs..."
+                className="pl-9 font-mono text-sm"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                data-testid="input-search-urls"
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loadingUrls ? (
+            <div className="space-y-2">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : filteredUrls && filteredUrls.length > 0 ? (
+            <div className="border border-border rounded-md overflow-hidden">
+              <div className="max-h-[600px] overflow-y-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-muted-foreground uppercase bg-muted/50 sticky top-0 z-10">
+                    <tr>
+                      <th className="px-4 py-3 font-mono font-medium">Status</th>
+                      <th className="px-4 py-3 font-mono font-medium">URL</th>
+                      <th className="px-4 py-3 font-mono font-medium hidden md:table-cell">Last Checked</th>
+                      <th className="px-4 py-3 font-mono font-medium text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredUrls.map((url) => (
+                      <tr key={url.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3 whitespace-nowrap w-24">
+                          {getUrlStatusBadge(url.lastStatus, url.isBroken)}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs break-all">
+                          <div className="flex flex-col">
+                            <span className={url.isBroken ? "text-destructive font-medium" : "text-foreground"}>
+                              {url.url.replace(/^https?:\/\/[^\/]+/, '') || '/'}
+                            </span>
+                            {url.errorMessage && (
+                              <span className="text-destructive/80 mt-1 text-[10px]">{url.errorMessage}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap hidden md:table-cell">
+                          {url.lastCheckedAt ? formatDistanceToNow(new Date(url.lastCheckedAt), { addSuffix: true }) : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <a href={url.url} target="_blank" rel="noreferrer" className="inline-flex items-center text-xs text-muted-foreground hover:text-primary transition-colors">
+                            Visit <ExternalLink className="ml-1 h-3 w-3" />
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-12 border border-dashed border-border rounded-md">
+              <p className="text-muted-foreground">No URLs found matching your criteria.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

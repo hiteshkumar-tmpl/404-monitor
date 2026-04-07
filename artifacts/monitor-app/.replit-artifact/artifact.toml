@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "404 Monitor"
+version = "1.0.0"
+id = "artifacts/monitor-app"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23372
+
+[services.development]
+run = "pnpm --filter @workspace/monitor-app run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/monitor-app", "run", "build" ]
+publicDir = "artifacts/monitor-app/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23372"
+BASE_PATH = "/"
