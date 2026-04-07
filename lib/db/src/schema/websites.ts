@@ -11,6 +11,7 @@ export const websitesTable = pgTable("websites", {
   totalUrls: integer("total_urls").notNull().default(0),
   brokenUrls: integer("broken_urls").notNull().default(0),
   status: text("status").notNull().default("pending"), // pending | checking | ok | error
+  checkIntervalMinutes: integer("check_interval_minutes").notNull().default(60),
   lastCheckedAt: timestamp("last_checked_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
