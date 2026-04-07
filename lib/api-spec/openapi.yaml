@@ -115,6 +115,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /websites/{id}/update:
+    patch:
+      operationId: updateWebsite
+      tags: [websites]
+      summary: Update a website's sitemap URL or alert email
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWebsiteRequest"
+      responses:
+        "200":
+          description: Updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Website"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /websites/{id}/urls:
     get:
       operationId: getWebsiteUrls
@@ -229,6 +266,16 @@ components:
         - brokenUrls
         - createdAt
         - status
+
+    UpdateWebsiteRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        sitemapUrl:
+          type: string
+        alertEmail:
+          type: string
 
     AddWebsiteRequest:
       type: object

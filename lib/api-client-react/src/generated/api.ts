@@ -25,6 +25,7 @@ import type {
   HealthStatus,
   MonitoredUrl,
   SuccessResponse,
+  UpdateWebsiteRequest,
   Website,
 } from "./api.schemas";
 
@@ -443,6 +444,93 @@ export const useDeleteWebsite = <
   TContext
 > => {
   return useMutation(getDeleteWebsiteMutationOptions(options));
+};
+
+/**
+ * @summary Update a website's sitemap URL or alert email
+ */
+export const getUpdateWebsiteUrl = (id: number) => {
+  return `/api/websites/${id}/update`;
+};
+
+export const updateWebsite = async (
+  id: number,
+  updateWebsiteRequest: UpdateWebsiteRequest,
+  options?: RequestInit,
+): Promise<Website> => {
+  return customFetch<Website>(getUpdateWebsiteUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateWebsiteRequest),
+  });
+};
+
+export const getUpdateWebsiteMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateWebsite>>,
+    TError,
+    { id: number; data: BodyType<UpdateWebsiteRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateWebsite>>,
+  TError,
+  { id: number; data: BodyType<UpdateWebsiteRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateWebsite"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateWebsite>>,
+    { id: number; data: BodyType<UpdateWebsiteRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateWebsite(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateWebsiteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateWebsite>>
+>;
+export type UpdateWebsiteMutationBody = BodyType<UpdateWebsiteRequest>;
+export type UpdateWebsiteMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Update a website's sitemap URL or alert email
+ */
+export const useUpdateWebsite = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateWebsite>>,
+    TError,
+    { id: number; data: BodyType<UpdateWebsiteRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateWebsite>>,
+  TError,
+  { id: number; data: BodyType<UpdateWebsiteRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateWebsiteMutationOptions(options));
 };
 
 /**

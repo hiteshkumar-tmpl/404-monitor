@@ -4,6 +4,7 @@ import {
   useGetWebsite, 
   useGetWebsiteUrls, 
   useTriggerCheck,
+  useUpdateWebsite,
   getGetWebsiteQueryKey,
   getGetWebsiteUrlsQueryKey,
   getGetDashboardSummaryQueryKey,
@@ -19,18 +20,28 @@ import {
   Clock, 
   ExternalLink, 
   Globe, 
+  Pencil,
   RefreshCw,
   Search
 } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { WebsiteStatus } from "@workspace/api-client-react";
 
 export default function WebsiteDetails() {
@@ -42,6 +53,12 @@ export default function WebsiteDetails() {
   const [statusFilter, setStatusFilter] = useState<"all" | "broken" | "ok">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [checkResult, setCheckResult] = useState<{ message: string, newBroken: number, checked: number } | null>(null);
+  
+  // Edit dialog state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editSitemapUrl, setEditSitemapUrl] = useState("");
+  const [editAlertEmail, setEditAlertEmail] = useState("");
 
   const { data: website, isLoading: loadingWebsite } = useGetWebsite(id, { 
     query: { enabled: !!id, queryKey: getGetWebsiteQueryKey(id) } 
@@ -52,6 +69,7 @@ export default function WebsiteDetails() {
   });
 
   const triggerCheck = useTriggerCheck();
+  const updateWebsite = useUpdateWebsite();
 
   const handleRunCheck = () => {
     triggerCheck.mutate({ id }, {
@@ -65,7 +83,6 @@ export default function WebsiteDetails() {
           title: "Check completed",
           description: result.message,
         });
-        // Invalidate queries to refresh data
         queryClient.invalidateQueries({ queryKey: getGetWebsiteQueryKey(id) });
         queryClient.invalidateQueries({ queryKey: getGetWebsiteUrlsQueryKey(id) });
         queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
@@ -79,6 +96,36 @@ export default function WebsiteDetails() {
         });
       }
     });
+  };
+
+  const openEdit = () => {
+    if (!website) return;
+    setEditName(website.name);
+    setEditSitemapUrl(website.sitemapUrl);
+    setEditAlertEmail(website.alertEmail);
+    setEditOpen(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!editSitemapUrl.trim()) {
+      toast({ title: "Sitemap URL is required", variant: "destructive" });
+      return;
+    }
+    updateWebsite.mutate(
+      { id, updateWebsiteRequest: { name: editName, sitemapUrl: editSitemapUrl, alertEmail: editAlertEmail } },
+      {
+        onSuccess: () => {
+          setEditOpen(false);
+          toast({ title: "Updated", description: "Website settings saved. Sitemap is being re-parsed." });
+          queryClient.invalidateQueries({ queryKey: getGetWebsiteQueryKey(id) });
+          queryClient.invalidateQueries({ queryKey: getGetWebsiteUrlsQueryKey(id) });
+          queryClient.invalidateQueries({ queryKey: getGetWebsitesQueryKey() });
+        },
+        onError: () => {
+          toast({ title: "Update failed", description: "Could not save changes.", variant: "destructive" });
+        }
+      }
+    );
   };
 
   const getStatusBadge = (status: string) => {
@@ -146,11 +193,21 @@ export default function WebsiteDetails() {
           {website.name}
         </h1>
         {getStatusBadge(website.status)}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={openEdit}
+          data-testid="button-edit-website"
+          className="font-mono text-xs"
+        >
+          <Pencil className="mr-1.5 h-3 w-3" />
+          EDIT
+        </Button>
         <Button 
           onClick={handleRunCheck} 
           disabled={isChecking}
           data-testid="button-run-check"
-          className="ml-4 font-mono font-bold"
+          className="font-mono font-bold"
         >
           <RefreshCw className={`mr-2 h-4 w-4 ${isChecking ? 'animate-spin' : ''}`} />
           {isChecking ? "RUNNING CHECK..." : "RUN CHECK NOW"}
@@ -175,7 +232,7 @@ export default function WebsiteDetails() {
               <span>SITEMAP</span>
             </div>
             <a href={website.sitemapUrl} target="_blank" rel="noreferrer" className="text-sm font-medium hover:underline text-primary truncate block" title={website.sitemapUrl}>
-              {new URL(website.sitemapUrl).hostname}
+              {website.sitemapUrl}
             </a>
           </CardContent>
         </Card>
@@ -259,7 +316,7 @@ export default function WebsiteDetails() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {filteredUrls.map((url) => (
-                      <tr key={url.id} className="hover:bg-muted/30 transition-colors">
+                      <tr key={url.id} className="hover:bg-muted/30 transition-colors" data-testid={`row-url-${url.id}`}>
                         <td className="px-4 py-3 whitespace-nowrap w-24">
                           {getUrlStatusBadge(url.lastStatus, url.isBroken)}
                         </td>
@@ -290,10 +347,78 @@ export default function WebsiteDetails() {
           ) : (
             <div className="text-center py-12 border border-dashed border-border rounded-md">
               <p className="text-muted-foreground">No URLs found matching your criteria.</p>
+              {website.totalUrls === 0 && (
+                <p className="text-muted-foreground text-sm mt-2">
+                  Make sure the sitemap URL points to an XML sitemap file (e.g. /sitemap.xml or /sitemap-0.xml).
+                  <br />
+                  <button onClick={openEdit} className="underline text-primary mt-1">
+                    Edit the sitemap URL
+                  </button>
+                </p>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Edit website dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent data-testid="dialog-edit-website">
+          <DialogHeader>
+            <DialogTitle className="font-mono">Edit Website</DialogTitle>
+            <DialogDescription>
+              Update the sitemap URL, name, or alert email. If the sitemap URL changes, all URLs will be re-discovered.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-name" className="font-mono text-xs text-muted-foreground">WEBSITE NAME</Label>
+              <Input
+                id="edit-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                data-testid="input-edit-name"
+                className="font-mono"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-sitemap" className="font-mono text-xs text-muted-foreground">SITEMAP URL</Label>
+              <Input
+                id="edit-sitemap"
+                value={editSitemapUrl}
+                onChange={(e) => setEditSitemapUrl(e.target.value)}
+                placeholder="https://example.com/sitemap.xml"
+                data-testid="input-edit-sitemap-url"
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Must be a direct link to an XML sitemap file, e.g. <code className="text-primary">/sitemap.xml</code> or <code className="text-primary">/sitemap-0.xml</code>
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-email" className="font-mono text-xs text-muted-foreground">ALERT EMAIL</Label>
+              <Input
+                id="edit-email"
+                type="email"
+                value={editAlertEmail}
+                onChange={(e) => setEditAlertEmail(e.target.value)}
+                data-testid="input-edit-alert-email"
+                className="font-mono"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={updateWebsite.isPending}
+              data-testid="button-save-edit"
+            >
+              {updateWebsite.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

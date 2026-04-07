@@ -107,6 +107,66 @@ router.delete("/websites/:id", async (req, res) => {
   }
 });
 
+// PATCH /api/websites/:id/update — update sitemap URL / alert email
+const updateWebsiteSchema = z.object({
+  name: z.string().min(1).optional(),
+  sitemapUrl: z.string().url().optional(),
+  alertEmail: z.string().email().optional(),
+});
+
+router.patch("/websites/:id/update", async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid website ID" });
+    return;
+  }
+
+  const parsed = updateWebsiteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  try {
+    const [existing] = await db.select().from(websitesTable).where(eq(websitesTable.id, id));
+    if (!existing) {
+      res.status(404).json({ error: "Website not found" });
+      return;
+    }
+
+    const updates: Partial<typeof existing> = {};
+    if (parsed.data.name) updates.name = parsed.data.name;
+    if (parsed.data.alertEmail) updates.alertEmail = parsed.data.alertEmail;
+
+    const sitemapChanged = parsed.data.sitemapUrl && parsed.data.sitemapUrl !== existing.sitemapUrl;
+    if (sitemapChanged) {
+      updates.sitemapUrl = parsed.data.sitemapUrl!;
+      updates.status = "pending";
+      updates.totalUrls = 0;
+      updates.brokenUrls = 0;
+    }
+
+    const [updated] = await db
+      .update(websitesTable)
+      .set(updates)
+      .where(eq(websitesTable.id, id))
+      .returning();
+
+    // If sitemap URL changed, clear old URLs and re-parse in background
+    if (sitemapChanged) {
+      await db.delete(monitoredUrlsTable).where(eq(monitoredUrlsTable.websiteId, id));
+      parseSitemapAndStore(id, updates.sitemapUrl!, req.log).catch((err) => {
+        req.log.error({ err, websiteId: id }, "Background sitemap re-parse failed");
+      });
+    }
+
+    res.json(formatWebsite(updated));
+  } catch (err) {
+    req.log.error({ err }, "Failed to update website");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // GET /api/websites/:id/urls — get all URLs for a website
 router.get("/websites/:id/urls", async (req, res) => {
   const id = parseInt(req.params.id);

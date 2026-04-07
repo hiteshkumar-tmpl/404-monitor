@@ -72,6 +72,31 @@ export const DeleteWebsiteResponse = zod.object({
 });
 
 /**
+ * @summary Update a website's sitemap URL or alert email
+ */
+export const UpdateWebsiteParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateWebsiteBody = zod.object({
+  name: zod.string().optional(),
+  sitemapUrl: zod.string().optional(),
+  alertEmail: zod.string().optional(),
+});
+
+export const UpdateWebsiteResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  sitemapUrl: zod.string(),
+  alertEmail: zod.string(),
+  totalUrls: zod.number(),
+  brokenUrls: zod.number(),
+  lastCheckedAt: zod.string().nullish(),
+  createdAt: zod.string(),
+  status: zod.enum(["pending", "checking", "ok", "error"]),
+});
+
+/**
  * @summary Get all URLs for a website
  */
 export const GetWebsiteUrlsParams = zod.object({

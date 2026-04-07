@@ -30,6 +30,12 @@ export interface Website {
   status: WebsiteStatus;
 }
 
+export interface UpdateWebsiteRequest {
+  name?: string;
+  sitemapUrl?: string;
+  alertEmail?: string;
+}
+
 export interface AddWebsiteRequest {
   name: string;
   sitemapUrl: string;

@@ -15,5 +15,6 @@ export * from "./getWebsiteUrlsStatus";
 export * from "./healthStatus";
 export * from "./monitoredUrl";
 export * from "./successResponse";
+export * from "./updateWebsiteRequest";
 export * from "./website";
 export * from "./websiteStatus";
