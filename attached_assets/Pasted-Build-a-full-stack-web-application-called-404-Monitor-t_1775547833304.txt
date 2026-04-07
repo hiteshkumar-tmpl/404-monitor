@@ -1,0 +1,99 @@
+Build a full-stack web application called "404 Monitor" that monitors a website's sitemap and sends email alerts when any page starts returning a 404 error.
+
+Tech stack:
+
+* Backend: Node.js with Express
+* Frontend: Simple React (or plain HTML if easier)
+* Database: Use SQLite (via Prisma or any ORM) or simple JSON file storage for MVP
+* HTTP client: Axios
+* XML parsing: xml2js
+* Scheduler: node-cron
+* Email: Resend API (or Nodemailer fallback)
+
+Core Features:
+
+1. User Input:
+
+* A form where user can enter:
+
+  * Website name
+  * Sitemap URL (e.g., https://example.com/sitemap.xml)
+  * Email address for alerts
+
+2. Sitemap Parser:
+
+* Fetch sitemap XML
+* Parse all URLs from <loc> tags
+* Store URLs in database
+
+3. URL Status Checker:
+
+* Periodically (every 1 hour) check all stored URLs
+* Use concurrent requests (limit to 5 at a time)
+* Capture HTTP status codes
+
+4. 404 Detection Logic:
+
+* Store previous status of each URL
+* If a URL was previously 200 and now returns 404:
+
+  * Trigger alert
+
+5. Email Notification:
+
+* Send email using Resend or Nodemailer:
+  Subject: "404 Alert Detected"
+  Body: Include broken URL
+
+6. Dashboard (basic UI):
+
+* List all monitored websites
+* Show:
+
+  * Total URLs
+  * Number of broken links
+  * Last checked time
+
+7. API Endpoints:
+
+* POST /add-website
+* GET /websites
+* GET /website/:id/urls
+
+8. Optimization:
+
+* Add retry logic (retry failed requests 2 times)
+* Handle timeouts (5 seconds per request)
+* Log errors properly
+
+9. Project Structure:
+
+* /server (Express backend)
+* /client (React frontend)
+* /utils (sitemap parser, checker)
+* /cron (scheduled jobs)
+
+10. Bonus (if possible):
+
+* Add Slack webhook alerts
+* Add manual "Run Check Now" button
+
+Environment Variables:
+
+* RESEND_API_KEY
+* EMAIL_FROM
+
+Important:
+
+* Write clean, modular code
+* Use async/await
+* Add comments explaining logic
+* Make it runnable with one command (npm run dev)
+
+Goal:
+A working MVP that can:
+
+* Accept a sitemap
+* Monitor URLs
+* Detect new 404 errors
+* Send email alerts automatically
