@@ -1,4 +1,4 @@
-import { db, websitesTable, monitoredUrlsTable } from "@workspace/db";
+import { db, websitesTable, monitoredUrlsTable, websiteSitemapsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { parseSitemap } from "./sitemapParser";
 import { checkUrlsBatch } from "./urlChecker";
@@ -39,14 +39,27 @@ export async function checkWebsite(websiteId: number): Promise<CheckWebsiteResul
   logger.info({ websiteId, name: website.name }, "Starting website check");
 
   try {
-    // Step 1: Re-parse sitemap to catch new URLs
+    // Step 1: Re-parse ALL sitemaps (primary + additional) to catch new URLs
+    const additionalSitemaps = await db
+      .select({ url: websiteSitemapsTable.url })
+      .from(websiteSitemapsTable)
+      .where(eq(websiteSitemapsTable.websiteId, websiteId));
+
+    const allSitemapUrls = [website.sitemapUrl, ...additionalSitemaps.map((s) => s.url)];
+
     let sitemapUrls: string[] = [];
-    try {
-      sitemapUrls = await parseSitemap(website.sitemapUrl);
-      logger.info({ websiteId, count: sitemapUrls.length }, "Parsed sitemap URLs");
-    } catch (err) {
-      logger.error({ err, websiteId }, "Failed to parse sitemap during check");
+    for (const sitemapUrl of allSitemapUrls) {
+      try {
+        const urls = await parseSitemap(sitemapUrl);
+        sitemapUrls.push(...urls);
+        logger.info({ websiteId, sitemapUrl, count: urls.length }, "Parsed sitemap");
+      } catch (err) {
+        logger.error({ err, websiteId, sitemapUrl }, "Failed to parse sitemap during check");
+      }
     }
+    // Deduplicate across sitemaps
+    sitemapUrls = [...new Set(sitemapUrls)];
+    logger.info({ websiteId, total: sitemapUrls.length }, "Total unique sitemap URLs across all sitemaps");
 
     // Step 2: Upsert new URLs into DB (insert ones not already tracked)
     if (sitemapUrls.length > 0) {

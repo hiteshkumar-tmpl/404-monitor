@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AddSitemapRequest,
   AddWebsiteRequest,
   CheckResult,
   DashboardSummary,
@@ -27,6 +28,7 @@ import type {
   SuccessResponse,
   UpdateWebsiteRequest,
   Website,
+  WebsiteSitemap,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -641,6 +643,265 @@ export function useGetWebsiteUrls<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary List all sitemap URLs for a website
+ */
+export const getGetWebsiteSitemapsUrl = (id: number) => {
+  return `/api/websites/${id}/sitemaps`;
+};
+
+export const getWebsiteSitemaps = async (
+  id: number,
+  options?: RequestInit,
+): Promise<WebsiteSitemap[]> => {
+  return customFetch<WebsiteSitemap[]>(getGetWebsiteSitemapsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetWebsiteSitemapsQueryKey = (id: number) => {
+  return [`/api/websites/${id}/sitemaps`] as const;
+};
+
+export const getGetWebsiteSitemapsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getWebsiteSitemaps>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getWebsiteSitemaps>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetWebsiteSitemapsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getWebsiteSitemaps>>
+  > = ({ signal }) => getWebsiteSitemaps(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getWebsiteSitemaps>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetWebsiteSitemapsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getWebsiteSitemaps>>
+>;
+export type GetWebsiteSitemapsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary List all sitemap URLs for a website
+ */
+
+export function useGetWebsiteSitemaps<
+  TData = Awaited<ReturnType<typeof getWebsiteSitemaps>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getWebsiteSitemaps>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetWebsiteSitemapsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Add a sitemap URL to a website
+ */
+export const getAddSitemapUrl = (id: number) => {
+  return `/api/websites/${id}/sitemaps`;
+};
+
+export const addSitemap = async (
+  id: number,
+  addSitemapRequest: AddSitemapRequest,
+  options?: RequestInit,
+): Promise<WebsiteSitemap> => {
+  return customFetch<WebsiteSitemap>(getAddSitemapUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(addSitemapRequest),
+  });
+};
+
+export const getAddSitemapMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addSitemap>>,
+    TError,
+    { id: number; data: BodyType<AddSitemapRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addSitemap>>,
+  TError,
+  { id: number; data: BodyType<AddSitemapRequest> },
+  TContext
+> => {
+  const mutationKey = ["addSitemap"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addSitemap>>,
+    { id: number; data: BodyType<AddSitemapRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return addSitemap(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddSitemapMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addSitemap>>
+>;
+export type AddSitemapMutationBody = BodyType<AddSitemapRequest>;
+export type AddSitemapMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Add a sitemap URL to a website
+ */
+export const useAddSitemap = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addSitemap>>,
+    TError,
+    { id: number; data: BodyType<AddSitemapRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof addSitemap>>,
+  TError,
+  { id: number; data: BodyType<AddSitemapRequest> },
+  TContext
+> => {
+  return useMutation(getAddSitemapMutationOptions(options));
+};
+
+/**
+ * @summary Remove a sitemap URL from a website
+ */
+export const getDeleteSitemapUrl = (id: number, sitemapId: number) => {
+  return `/api/websites/${id}/sitemaps/${sitemapId}`;
+};
+
+export const deleteSitemap = async (
+  id: number,
+  sitemapId: number,
+  options?: RequestInit,
+): Promise<SuccessResponse> => {
+  return customFetch<SuccessResponse>(getDeleteSitemapUrl(id, sitemapId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteSitemapMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSitemap>>,
+    TError,
+    { id: number; sitemapId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteSitemap>>,
+  TError,
+  { id: number; sitemapId: number },
+  TContext
+> => {
+  const mutationKey = ["deleteSitemap"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteSitemap>>,
+    { id: number; sitemapId: number }
+  > = (props) => {
+    const { id, sitemapId } = props ?? {};
+
+    return deleteSitemap(id, sitemapId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteSitemapMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteSitemap>>
+>;
+
+export type DeleteSitemapMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Remove a sitemap URL from a website
+ */
+export const useDeleteSitemap = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSitemap>>,
+    TError,
+    { id: number; sitemapId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteSitemap>>,
+  TError,
+  { id: number; sitemapId: number },
+  TContext
+> => {
+  return useMutation(getDeleteSitemapMutationOptions(options));
+};
 
 /**
  * @summary Manually trigger a check for a website

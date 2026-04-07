@@ -36,6 +36,17 @@ export interface UpdateWebsiteRequest {
   alertEmail?: string;
 }
 
+export interface WebsiteSitemap {
+  id: number;
+  websiteId: number;
+  url: string;
+  createdAt: string;
+}
+
+export interface AddSitemapRequest {
+  url: string;
+}
+
 export interface AddWebsiteRequest {
   name: string;
   sitemapUrl: string;

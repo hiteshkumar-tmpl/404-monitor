@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, websitesTable, monitoredUrlsTable } from "@workspace/db";
+import { db, websitesTable, monitoredUrlsTable, websiteSitemapsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { parseSitemap } from "../utils/sitemapParser";
 import { checkWebsite } from "../utils/checker";
@@ -163,6 +163,90 @@ router.patch("/websites/:id/update", async (req, res) => {
     res.json(formatWebsite(updated));
   } catch (err) {
     req.log.error({ err }, "Failed to update website");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /api/websites/:id/sitemaps — list all sitemaps for a website
+router.get("/websites/:id/sitemaps", async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid website ID" }); return; }
+
+  try {
+    const [website] = await db.select().from(websitesTable).where(eq(websitesTable.id, id));
+    if (!website) { res.status(404).json({ error: "Website not found" }); return; }
+
+    const sitemaps = await db
+      .select()
+      .from(websiteSitemapsTable)
+      .where(eq(websiteSitemapsTable.websiteId, id))
+      .orderBy(websiteSitemapsTable.createdAt);
+
+    res.json(sitemaps.map((s) => ({
+      id: s.id,
+      websiteId: s.websiteId,
+      url: s.url,
+      createdAt: s.createdAt?.toISOString(),
+    })));
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch sitemaps");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/websites/:id/sitemaps — add an additional sitemap
+const addSitemapSchema = z.object({ url: z.string().url() });
+
+router.post("/websites/:id/sitemaps", async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid website ID" }); return; }
+
+  const parsed = addSitemapSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+
+  try {
+    const [website] = await db.select().from(websitesTable).where(eq(websitesTable.id, id));
+    if (!website) { res.status(404).json({ error: "Website not found" }); return; }
+
+    const [sitemap] = await db
+      .insert(websiteSitemapsTable)
+      .values({ websiteId: id, url: parsed.data.url })
+      .returning();
+
+    // Parse the new sitemap in the background to add its URLs
+    parseSitemapAndStore(id, parsed.data.url, req.log).catch((err) => {
+      req.log.error({ err, websiteId: id }, "Background sitemap parse failed");
+    });
+
+    res.status(201).json({
+      id: sitemap.id,
+      websiteId: sitemap.websiteId,
+      url: sitemap.url,
+      createdAt: sitemap.createdAt?.toISOString(),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to add sitemap");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// DELETE /api/websites/:id/sitemaps/:sitemapId — remove an additional sitemap
+router.delete("/websites/:id/sitemaps/:sitemapId", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const sitemapId = parseInt(req.params.sitemapId);
+  if (isNaN(id) || isNaN(sitemapId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  try {
+    const [deleted] = await db
+      .delete(websiteSitemapsTable)
+      .where(and(eq(websiteSitemapsTable.id, sitemapId), eq(websiteSitemapsTable.websiteId, id)))
+      .returning();
+
+    if (!deleted) { res.status(404).json({ error: "Sitemap not found" }); return; }
+
+    res.json({ success: true, message: "Sitemap removed" });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete sitemap");
     res.status(500).json({ error: "Internal server error" });
   }
 });

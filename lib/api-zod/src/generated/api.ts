@@ -123,6 +123,47 @@ export const GetWebsiteUrlsResponseItem = zod.object({
 export const GetWebsiteUrlsResponse = zod.array(GetWebsiteUrlsResponseItem);
 
 /**
+ * @summary List all sitemap URLs for a website
+ */
+export const GetWebsiteSitemapsParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetWebsiteSitemapsResponseItem = zod.object({
+  id: zod.number(),
+  websiteId: zod.number(),
+  url: zod.string(),
+  createdAt: zod.string(),
+});
+export const GetWebsiteSitemapsResponse = zod.array(
+  GetWebsiteSitemapsResponseItem,
+);
+
+/**
+ * @summary Add a sitemap URL to a website
+ */
+export const AddSitemapParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const AddSitemapBody = zod.object({
+  url: zod.string(),
+});
+
+/**
+ * @summary Remove a sitemap URL from a website
+ */
+export const DeleteSitemapParams = zod.object({
+  id: zod.coerce.number(),
+  sitemapId: zod.coerce.number(),
+});
+
+export const DeleteSitemapResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string(),
+});
+
+/**
  * @summary Manually trigger a check for a website
  */
 export const TriggerCheckParams = zod.object({

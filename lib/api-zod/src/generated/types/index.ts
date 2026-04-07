@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./addSitemapRequest";
 export * from "./addWebsiteRequest";
 export * from "./checkResult";
 export * from "./dashboardSummary";
@@ -17,4 +18,5 @@ export * from "./monitoredUrl";
 export * from "./successResponse";
 export * from "./updateWebsiteRequest";
 export * from "./website";
+export * from "./websiteSitemap";
 export * from "./websiteStatus";

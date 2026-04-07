@@ -34,3 +34,13 @@ export const monitoredUrlsTable = pgTable("monitored_urls", {
 export const insertMonitoredUrlSchema = createInsertSchema(monitoredUrlsTable).omit({ id: true });
 export type InsertMonitoredUrl = z.infer<typeof insertMonitoredUrlSchema>;
 export type MonitoredUrl = typeof monitoredUrlsTable.$inferSelect;
+
+// Additional sitemap URLs per website (the primary one stays on the websites table)
+export const websiteSitemapsTable = pgTable("website_sitemaps", {
+  id: serial("id").primaryKey(),
+  websiteId: integer("website_id").notNull().references(() => websitesTable.id, { onDelete: "cascade" }),
+  url: text("url").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type WebsiteSitemap = typeof websiteSitemapsTable.$inferSelect;

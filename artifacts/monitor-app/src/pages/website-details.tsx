@@ -5,8 +5,12 @@ import {
   useGetWebsiteUrls, 
   useTriggerCheck,
   useUpdateWebsite,
+  useGetWebsiteSitemaps,
+  useAddSitemap,
+  useDeleteSitemap,
   getGetWebsiteQueryKey,
   getGetWebsiteUrlsQueryKey,
+  getGetWebsiteSitemapsQueryKey,
   getGetDashboardSummaryQueryKey,
   getGetWebsitesQueryKey
 } from "@workspace/api-client-react";
@@ -21,8 +25,11 @@ import {
   ExternalLink, 
   Globe, 
   Pencil,
+  Plus,
   RefreshCw,
-  Search
+  Search,
+  Trash2,
+  X
 } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -60,6 +67,10 @@ export default function WebsiteDetails() {
   const [editSitemapUrl, setEditSitemapUrl] = useState("");
   const [editAlertEmail, setEditAlertEmail] = useState("");
 
+  // Add sitemap state
+  const [showAddSitemap, setShowAddSitemap] = useState(false);
+  const [newSitemapUrl, setNewSitemapUrl] = useState("");
+
   const { data: website, isLoading: loadingWebsite } = useGetWebsite(id, { 
     query: { enabled: !!id, queryKey: getGetWebsiteQueryKey(id) } 
   });
@@ -68,8 +79,14 @@ export default function WebsiteDetails() {
     query: { enabled: !!id, queryKey: getGetWebsiteUrlsQueryKey(id, { status: statusFilter !== "all" ? statusFilter : undefined }) } 
   });
 
+  const { data: sitemaps, isLoading: loadingSitemaps } = useGetWebsiteSitemaps(id, {
+    query: { enabled: !!id, queryKey: getGetWebsiteSitemapsQueryKey(id) }
+  });
+
   const triggerCheck = useTriggerCheck();
   const updateWebsite = useUpdateWebsite();
+  const addSitemap = useAddSitemap();
+  const deleteSitemap = useDeleteSitemap();
 
   const handleRunCheck = () => {
     triggerCheck.mutate({ id }, {
@@ -123,6 +140,44 @@ export default function WebsiteDetails() {
         },
         onError: () => {
           toast({ title: "Update failed", description: "Could not save changes.", variant: "destructive" });
+        }
+      }
+    );
+  };
+
+  const handleAddSitemap = () => {
+    if (!newSitemapUrl.trim()) {
+      toast({ title: "URL required", variant: "destructive" });
+      return;
+    }
+    addSitemap.mutate(
+      { id, addSitemapRequest: { url: newSitemapUrl.trim() } },
+      {
+        onSuccess: () => {
+          setNewSitemapUrl("");
+          setShowAddSitemap(false);
+          toast({ title: "Sitemap added", description: "Parsing URLs in the background…" });
+          queryClient.invalidateQueries({ queryKey: getGetWebsiteSitemapsQueryKey(id) });
+          queryClient.invalidateQueries({ queryKey: getGetWebsiteUrlsQueryKey(id) });
+          queryClient.invalidateQueries({ queryKey: getGetWebsiteQueryKey(id) });
+        },
+        onError: () => {
+          toast({ title: "Failed to add sitemap", variant: "destructive" });
+        }
+      }
+    );
+  };
+
+  const handleDeleteSitemap = (sitemapId: number) => {
+    deleteSitemap.mutate(
+      { id, sitemapId },
+      {
+        onSuccess: () => {
+          toast({ title: "Sitemap removed" });
+          queryClient.invalidateQueries({ queryKey: getGetWebsiteSitemapsQueryKey(id) });
+        },
+        onError: () => {
+          toast({ title: "Failed to remove sitemap", variant: "destructive" });
         }
       }
     );
@@ -268,6 +323,81 @@ export default function WebsiteDetails() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Sitemaps management card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="font-mono text-base">Sitemaps</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setShowAddSitemap(true); setNewSitemapUrl(""); }}
+              className="font-mono text-xs"
+              data-testid="button-add-sitemap"
+            >
+              <Plus className="mr-1.5 h-3 w-3" />
+              ADD SITEMAP
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="space-y-2">
+            {/* Primary sitemap — always shown, not deletable */}
+            <div className="flex items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Globe className="h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="font-mono text-xs text-foreground truncate" title={website.sitemapUrl}>{website.sitemapUrl}</span>
+              </div>
+              <Badge variant="outline" className="ml-2 shrink-0 text-[10px] font-mono border-primary/30 text-primary">PRIMARY</Badge>
+            </div>
+
+            {/* Additional sitemaps */}
+            {loadingSitemaps ? (
+              <Skeleton className="h-10 w-full" />
+            ) : sitemaps && sitemaps.length > 0 ? (
+              sitemaps.map((s) => (
+                <div key={s.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="font-mono text-xs text-foreground truncate" title={s.url}>{s.url}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="ml-2 h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => handleDeleteSitemap(s.id)}
+                    data-testid={`button-delete-sitemap-${s.id}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))
+            ) : null}
+
+            {/* Add sitemap inline form */}
+            {showAddSitemap && (
+              <div className="flex items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+                <Input
+                  autoFocus
+                  value={newSitemapUrl}
+                  onChange={(e) => setNewSitemapUrl(e.target.value)}
+                  placeholder="https://example.com/sitemap2.xml"
+                  className="font-mono text-xs h-7 border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0 flex-1"
+                  onKeyDown={(e) => { if (e.key === "Enter") handleAddSitemap(); if (e.key === "Escape") setShowAddSitemap(false); }}
+                  data-testid="input-new-sitemap-url"
+                />
+                <Button size="sm" onClick={handleAddSitemap} disabled={addSitemap.isPending} className="h-7 text-xs font-mono px-3">
+                  {addSitemap.isPending ? "Adding…" : "Add"}
+                </Button>
+                <Button size="icon" variant="ghost" onClick={() => setShowAddSitemap(false)} className="h-7 w-7 text-muted-foreground">
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-4">
