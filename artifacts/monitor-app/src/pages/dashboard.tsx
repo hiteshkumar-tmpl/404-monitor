@@ -29,8 +29,8 @@ import { useToast } from "@/hooks/use-toast";
 import { WebsiteStatus } from "@workspace/api-client-react";
 
 export default function Dashboard() {
-  const { data: websites, isLoading: loadingWebsites } = useGetWebsites();
-  const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary();
+  const { data: websites, isLoading: loadingWebsites } = useGetWebsites({ query: { refetchInterval: 30000 } });
+  const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary({ query: { refetchInterval: 30000 } });
   const deleteWebsite = useDeleteWebsite();
   const queryClient = useQueryClient();
   const { toast } = useToast();

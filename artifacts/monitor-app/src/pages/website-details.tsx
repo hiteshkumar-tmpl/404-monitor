@@ -81,15 +81,15 @@ export default function WebsiteDetails() {
   const [newSitemapUrl, setNewSitemapUrl] = useState("");
 
   const { data: website, isLoading: loadingWebsite } = useGetWebsite(id, { 
-    query: { enabled: !!id, queryKey: getGetWebsiteQueryKey(id) } 
+    query: { enabled: !!id, queryKey: getGetWebsiteQueryKey(id), refetchInterval: 30000 } 
   });
   
   const { data: urls, isLoading: loadingUrls } = useGetWebsiteUrls(id, { status: statusFilter !== "all" ? statusFilter : undefined }, { 
-    query: { enabled: !!id, queryKey: getGetWebsiteUrlsQueryKey(id, { status: statusFilter !== "all" ? statusFilter : undefined }) } 
+    query: { enabled: !!id, queryKey: getGetWebsiteUrlsQueryKey(id, { status: statusFilter !== "all" ? statusFilter : undefined }), refetchInterval: 30000 } 
   });
 
   const { data: sitemaps, isLoading: loadingSitemaps } = useGetWebsiteSitemaps(id, {
-    query: { enabled: !!id, queryKey: getGetWebsiteSitemapsQueryKey(id) }
+    query: { enabled: !!id, queryKey: getGetWebsiteSitemapsQueryKey(id), refetchInterval: 30000 }
   });
 
   const triggerCheck = useTriggerCheck();
