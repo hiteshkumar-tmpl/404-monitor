@@ -139,7 +139,7 @@ export default function WebsiteDetails() {
       return;
     }
     updateWebsite.mutate(
-      { id, updateWebsiteRequest: { name: editName, sitemapUrl: editSitemapUrl, alertEmail: editAlertEmail, checkIntervalMinutes: editIntervalMinutes } },
+      { id, data: { name: editName, sitemapUrl: editSitemapUrl, alertEmail: editAlertEmail, checkIntervalMinutes: editIntervalMinutes } },
       {
         onSuccess: () => {
           setEditOpen(false);
@@ -161,7 +161,7 @@ export default function WebsiteDetails() {
       return;
     }
     addSitemap.mutate(
-      { id, addSitemapRequest: { url: newSitemapUrl.trim() } },
+      { id, data: { url: newSitemapUrl.trim() } },
       {
         onSuccess: () => {
           setNewSitemapUrl("");
