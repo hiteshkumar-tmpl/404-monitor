@@ -8,7 +8,8 @@ import {
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { Activity, Globe, Link2, AlertTriangle, Trash2, RefreshCw } from "lucide-react";
+import { Activity, Clock, Globe, Link2, AlertTriangle, Trash2, RefreshCw } from "lucide-react";
+import { intervalLabel } from "@/pages/add-website";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -152,7 +153,7 @@ export default function Dashboard() {
                         </Link>
                         {getStatusBadge(website.status)}
                       </div>
-                      <div className="flex items-center space-x-4 text-sm text-muted-foreground font-mono">
+                      <div className="flex items-center flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground font-mono">
                         <span className="flex items-center">
                           <Link2 className="w-3 h-3 mr-1" />
                           {website.totalUrls} URLs
@@ -160,9 +161,13 @@ export default function Dashboard() {
                         {website.brokenUrls > 0 && (
                           <span className="flex items-center text-destructive">
                             <AlertTriangle className="w-3 h-3 mr-1" />
-                            {website.brokenUrls} Broken
+                            {website.brokenUrls} broken
                           </span>
                         )}
+                        <span className="flex items-center">
+                          <Clock className="w-3 h-3 mr-1" />
+                          {intervalLabel(website.checkIntervalMinutes ?? 60)}
+                        </span>
                         <span className="flex items-center">
                           <Activity className="w-3 h-3 mr-1" />
                           {website.lastCheckedAt 
@@ -215,7 +220,7 @@ export default function Dashboard() {
               <Globe className="w-12 h-12 text-muted-foreground mb-4" />
               <h3 className="text-lg font-bold mb-2">No properties monitored</h3>
               <p className="text-muted-foreground mb-6 max-w-sm">
-                Add your first website by providing a sitemap URL. We'll automatically parse it and begin hourly checks for 404 errors.
+                Add your first website by providing a sitemap URL. We'll automatically parse it and check for 404 errors on the schedule you choose.
               </p>
               <Link href="/websites/add">
                 <Button data-testid="button-add-first">Add Property</Button>

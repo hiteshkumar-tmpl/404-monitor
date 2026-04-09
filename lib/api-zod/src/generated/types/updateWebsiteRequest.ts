@@ -10,4 +10,5 @@ export interface UpdateWebsiteRequest {
   name?: string;
   sitemapUrl?: string;
   alertEmail?: string;
+  checkIntervalMinutes?: number;
 }

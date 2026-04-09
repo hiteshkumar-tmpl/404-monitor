@@ -14,6 +14,7 @@ export interface Website {
   alertEmail: string;
   totalUrls: number;
   brokenUrls: number;
+  checkIntervalMinutes: number;
   lastCheckedAt?: string | null;
   createdAt: string;
   status: WebsiteStatus;

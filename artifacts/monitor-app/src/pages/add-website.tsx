@@ -15,16 +15,43 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetWebsitesQueryKey, getGetDashboardSummaryQueryKey } from "@workspace/api-client-react";
 
+export const INTERVAL_OPTIONS = [
+  { label: "Every 5 minutes", value: 5 },
+  { label: "Every 15 minutes", value: 15 },
+  { label: "Every 30 minutes", value: 30 },
+  { label: "Every 1 hour", value: 60 },
+  { label: "Every 2 hours", value: 120 },
+  { label: "Every 6 hours", value: 360 },
+  { label: "Every 12 hours", value: 720 },
+  { label: "Every 24 hours", value: 1440 },
+];
+
+export function intervalLabel(minutes: number): string {
+  const opt = INTERVAL_OPTIONS.find((o) => o.value === minutes);
+  if (opt) return opt.label;
+  if (minutes < 60) return `Every ${minutes} min`;
+  if (minutes < 1440) return `Every ${Math.round(minutes / 60)}h`;
+  return `Every ${Math.round(minutes / 1440)}d`;
+}
+
 const formSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters."),
   sitemapUrl: z.string().url("Must be a valid URL starting with http:// or https://"),
   alertEmail: z.string().email("Must be a valid email address."),
+  checkIntervalMinutes: z.coerce.number().int().min(5),
 });
 
 export default function AddWebsite() {
@@ -39,6 +66,7 @@ export default function AddWebsite() {
       name: "",
       sitemapUrl: "",
       alertEmail: "",
+      checkIntervalMinutes: 60,
     },
   });
 
@@ -53,7 +81,7 @@ export default function AddWebsite() {
         queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
         setLocation(`/websites/${website.id}`);
       },
-      onError: (error) => {
+      onError: () => {
         toast({
           title: "Failed to add property",
           description: "An error occurred while adding the website.",
@@ -102,7 +130,7 @@ export default function AddWebsite() {
                       <Input placeholder="https://example.com/sitemap.xml" type="url" {...field} data-testid="input-sitemap" />
                     </FormControl>
                     <FormDescription>
-                      Must be an XML sitemap. We'll parse this to discover all pages.
+                      Must point directly to an XML sitemap file, e.g. <code className="text-primary">/sitemap.xml</code> or <code className="text-primary">/sitemap-0.xml</code>
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -126,10 +154,41 @@ export default function AddWebsite() {
                 )}
               />
 
+              <FormField
+                control={form.control}
+                name="checkIntervalMinutes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Check Interval</FormLabel>
+                    <Select
+                      onValueChange={(v) => field.onChange(parseInt(v, 10))}
+                      defaultValue={String(field.value)}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="select-interval">
+                          <SelectValue placeholder="Select check frequency" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {INTERVAL_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={String(opt.value)}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      How often to automatically check all URLs in this website's sitemap.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <Alert className="bg-muted/50 text-muted-foreground border-border">
                 <Info className="h-4 w-4" />
                 <AlertDescription>
-                  We will parse your sitemap immediately after adding and begin hourly checks.
+                  Your sitemap will be parsed immediately after adding. Automated checks run on the schedule you choose above.
                 </AlertDescription>
               </Alert>
 

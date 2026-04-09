@@ -25,6 +25,7 @@ export interface Website {
   alertEmail: string;
   totalUrls: number;
   brokenUrls: number;
+  checkIntervalMinutes: number;
   lastCheckedAt?: string | null;
   createdAt: string;
   status: WebsiteStatus;
@@ -34,6 +35,7 @@ export interface UpdateWebsiteRequest {
   name?: string;
   sitemapUrl?: string;
   alertEmail?: string;
+  checkIntervalMinutes?: number;
 }
 
 export interface WebsiteSitemap {
@@ -51,6 +53,7 @@ export interface AddWebsiteRequest {
   name: string;
   sitemapUrl: string;
   alertEmail: string;
+  checkIntervalMinutes?: number;
 }
 
 export interface MonitoredUrl {

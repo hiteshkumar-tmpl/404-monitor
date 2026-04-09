@@ -25,6 +25,7 @@ export const GetWebsitesResponseItem = zod.object({
   alertEmail: zod.string(),
   totalUrls: zod.number(),
   brokenUrls: zod.number(),
+  checkIntervalMinutes: zod.number(),
   lastCheckedAt: zod.string().nullish(),
   createdAt: zod.string(),
   status: zod.enum(["pending", "checking", "ok", "error"]),
@@ -38,6 +39,7 @@ export const AddWebsiteBody = zod.object({
   name: zod.string(),
   sitemapUrl: zod.string(),
   alertEmail: zod.string(),
+  checkIntervalMinutes: zod.number().optional(),
 });
 
 /**
@@ -54,6 +56,7 @@ export const GetWebsiteResponse = zod.object({
   alertEmail: zod.string(),
   totalUrls: zod.number(),
   brokenUrls: zod.number(),
+  checkIntervalMinutes: zod.number(),
   lastCheckedAt: zod.string().nullish(),
   createdAt: zod.string(),
   status: zod.enum(["pending", "checking", "ok", "error"]),
@@ -82,6 +85,7 @@ export const UpdateWebsiteBody = zod.object({
   name: zod.string().optional(),
   sitemapUrl: zod.string().optional(),
   alertEmail: zod.string().optional(),
+  checkIntervalMinutes: zod.number().optional(),
 });
 
 export const UpdateWebsiteResponse = zod.object({
@@ -91,6 +95,7 @@ export const UpdateWebsiteResponse = zod.object({
   alertEmail: zod.string(),
   totalUrls: zod.number(),
   brokenUrls: zod.number(),
+  checkIntervalMinutes: zod.number(),
   lastCheckedAt: zod.string().nullish(),
   createdAt: zod.string(),
   status: zod.enum(["pending", "checking", "ok", "error"]),

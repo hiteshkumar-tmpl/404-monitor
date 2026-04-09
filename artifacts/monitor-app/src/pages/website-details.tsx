@@ -49,7 +49,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { WebsiteStatus } from "@workspace/api-client-react";
+import { INTERVAL_OPTIONS, intervalLabel } from "@/pages/add-website";
 
 export default function WebsiteDetails() {
   const params = useParams();
@@ -66,6 +74,7 @@ export default function WebsiteDetails() {
   const [editName, setEditName] = useState("");
   const [editSitemapUrl, setEditSitemapUrl] = useState("");
   const [editAlertEmail, setEditAlertEmail] = useState("");
+  const [editIntervalMinutes, setEditIntervalMinutes] = useState(60);
 
   // Add sitemap state
   const [showAddSitemap, setShowAddSitemap] = useState(false);
@@ -120,6 +129,7 @@ export default function WebsiteDetails() {
     setEditName(website.name);
     setEditSitemapUrl(website.sitemapUrl);
     setEditAlertEmail(website.alertEmail);
+    setEditIntervalMinutes(website.checkIntervalMinutes ?? 60);
     setEditOpen(true);
   };
 
@@ -129,7 +139,7 @@ export default function WebsiteDetails() {
       return;
     }
     updateWebsite.mutate(
-      { id, updateWebsiteRequest: { name: editName, sitemapUrl: editSitemapUrl, alertEmail: editAlertEmail } },
+      { id, updateWebsiteRequest: { name: editName, sitemapUrl: editSitemapUrl, alertEmail: editAlertEmail, checkIntervalMinutes: editIntervalMinutes } },
       {
         onSuccess: () => {
           setEditOpen(false);
@@ -279,7 +289,7 @@ export default function WebsiteDetails() {
         </Alert>
       )}
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card className="bg-card">
           <CardContent className="p-6">
             <div className="flex items-center space-x-2 text-sm font-mono text-muted-foreground mb-2">
@@ -299,6 +309,17 @@ export default function WebsiteDetails() {
             </div>
             <div className="text-sm font-medium">
               {website.lastCheckedAt ? format(new Date(website.lastCheckedAt), "PP p") : "Never"}
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-card cursor-pointer hover:border-primary/40 transition-colors" onClick={openEdit} title="Click to change check interval">
+          <CardContent className="p-6">
+            <div className="flex items-center space-x-2 text-sm font-mono text-muted-foreground mb-2">
+              <Clock className="h-4 w-4" />
+              <span>CHECK EVERY</span>
+            </div>
+            <div className="text-sm font-semibold font-mono truncate">
+              {intervalLabel(website.checkIntervalMinutes ?? 60)}
             </div>
           </CardContent>
         </Card>
@@ -535,6 +556,25 @@ export default function WebsiteDetails() {
                 data-testid="input-edit-alert-email"
                 className="font-mono"
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="font-mono text-xs text-muted-foreground">CHECK INTERVAL</Label>
+              <Select
+                value={String(editIntervalMinutes)}
+                onValueChange={(v) => setEditIntervalMinutes(parseInt(v, 10))}
+              >
+                <SelectTrigger data-testid="select-edit-interval" className="font-mono">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {INTERVAL_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={String(opt.value)}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">How often the scheduler automatically checks all URLs.</p>
             </div>
           </div>
           <DialogFooter>

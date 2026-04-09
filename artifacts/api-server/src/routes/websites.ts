@@ -12,6 +12,7 @@ const addWebsiteSchema = z.object({
   name: z.string().min(1),
   sitemapUrl: z.string().url(),
   alertEmail: z.string().email(),
+  checkIntervalMinutes: z.number().int().min(5).max(10080).optional().default(60),
 });
 
 // GET /api/websites — list all monitored websites
@@ -33,13 +34,13 @@ router.post("/websites", async (req, res) => {
     return;
   }
 
-  const { name, sitemapUrl, alertEmail } = parsed.data;
+  const { name, sitemapUrl, alertEmail, checkIntervalMinutes } = parsed.data;
 
   try {
     // Insert the website record
     const [website] = await db
       .insert(websitesTable)
-      .values({ name, sitemapUrl, alertEmail, status: "pending" })
+      .values({ name, sitemapUrl, alertEmail, checkIntervalMinutes, status: "pending" })
       .returning();
 
     // Asynchronously parse the sitemap and insert URLs (fire and forget)
@@ -107,11 +108,12 @@ router.delete("/websites/:id", async (req, res) => {
   }
 });
 
-// PATCH /api/websites/:id/update — update sitemap URL / alert email
+// PATCH /api/websites/:id/update — update sitemap URL / alert email / check interval
 const updateWebsiteSchema = z.object({
   name: z.string().min(1).optional(),
   sitemapUrl: z.string().url().optional(),
   alertEmail: z.string().email().optional(),
+  checkIntervalMinutes: z.number().int().min(5).max(10080).optional(),
 });
 
 router.patch("/websites/:id/update", async (req, res) => {
@@ -137,6 +139,7 @@ router.patch("/websites/:id/update", async (req, res) => {
     const updates: Partial<typeof existing> = {};
     if (parsed.data.name) updates.name = parsed.data.name;
     if (parsed.data.alertEmail) updates.alertEmail = parsed.data.alertEmail;
+    if (parsed.data.checkIntervalMinutes !== undefined) updates.checkIntervalMinutes = parsed.data.checkIntervalMinutes;
 
     const sitemapChanged = parsed.data.sitemapUrl && parsed.data.sitemapUrl !== existing.sitemapUrl;
     if (sitemapChanged) {
@@ -379,6 +382,7 @@ function formatWebsite(w: {
   alertEmail: string;
   totalUrls: number;
   brokenUrls: number;
+  checkIntervalMinutes: number;
   status: string;
   lastCheckedAt: Date | null;
   createdAt: Date;
@@ -390,6 +394,7 @@ function formatWebsite(w: {
     alertEmail: w.alertEmail,
     totalUrls: w.totalUrls,
     brokenUrls: w.brokenUrls,
+    checkIntervalMinutes: w.checkIntervalMinutes,
     status: w.status,
     lastCheckedAt: w.lastCheckedAt?.toISOString() ?? null,
     createdAt: w.createdAt.toISOString(),

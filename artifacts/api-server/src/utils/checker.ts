@@ -130,7 +130,7 @@ export async function checkWebsite(websiteId: number): Promise<CheckWebsiteResul
       .set({
         totalUrls: urlRows.length,
         brokenUrls: brokenCount,
-        status: "ok",
+        status: brokenCount > 0 ? "error" : "ok",
         lastCheckedAt: new Date(),
       })
       .where(eq(websitesTable.id, websiteId));
