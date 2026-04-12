@@ -16,6 +16,7 @@ import SlackHelp from "@/pages/help/slack";
 import TeamsHelp from "@/pages/help/teams";
 import AdminDashboard from "@/pages/admin/index";
 import AdminUsers from "@/pages/admin/users";
+import TestPage from "@/pages/test";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -107,6 +108,7 @@ function Router() {
           </Layout>
         </ProtectedRoute>
       </Route>
+      <Route path="/test" component={TestPage} />
       <Route component={NotFound} />
     </Switch>
   );

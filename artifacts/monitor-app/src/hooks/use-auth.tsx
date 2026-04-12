@@ -1,6 +1,11 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useLogin, useLogout, useGetCurrentUser } from "@workspace/api-client-react";
+import {
+  useLogin,
+  useLogout,
+  useGetCurrentUser,
+  getGetCurrentUserQueryKey,
+} from "@workspace/api-client-react";
 import type { AuthUser } from "@workspace/api-client-react";
 
 interface AuthContextType {
@@ -24,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const { data, isLoading: isQueryLoading, error } = useGetCurrentUser({
     query: {
+      queryKey: getGetCurrentUserQueryKey(),
       retry: false,
       refetchOnWindowFocus: false,
     },
