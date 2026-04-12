@@ -1,6 +1,11 @@
 import { config } from "dotenv";
 import path from "path";
-config({ path: path.join(import.meta.dirname, "../../../.env") });
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+config({ path: path.join(__dirname, "../../../.env") });
 
 import app from "./app";
 import { logger } from "./lib/logger";
