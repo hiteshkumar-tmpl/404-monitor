@@ -1,0 +1,10 @@
+{
+  "name": "404-monitor-api",
+  "plan": "starter",
+  "region": " oregon",
+  "repository": "https://github.com/hiteshkumar-tmpl/404-monitor",
+  "branch": "main",
+  "rootDirectory": "artifacts/api-server",
+  "healthCheckPath": "/api/healthz",
+  "envVars": { "NODE_ENV": "production" },
+}
