@@ -15,10 +15,10 @@ paths = [ "/" ]
 localPort = 23372
 
 [services.development]
-run = "pnpm --filter @workspace/monitor-app run dev"
+run = "npm run dev -w @workspace/monitor-app"
 
 [services.production]
-build = [ "pnpm", "--filter", "@workspace/monitor-app", "run", "build" ]
+build = [ "npm", "run", "build", "-w", "@workspace/monitor-app" ]
 publicDir = "artifacts/monitor-app/dist/public"
 serve = "static"
 

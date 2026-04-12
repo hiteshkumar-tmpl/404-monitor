@@ -48,11 +48,74 @@ export async function send404Alert(params: {
     });
 
     if (error) {
-      logger.error({ error, to, websiteName }, "Failed to send alert email via Resend");
+      logger.error(
+        { error, to, websiteName },
+        "Failed to send alert email via Resend",
+      );
     } else {
-      logger.info({ to, websiteName, count: brokenUrls.length }, "Sent 404 alert email");
+      logger.info(
+        { to, websiteName, count: brokenUrls.length },
+        "Sent 404 alert email",
+      );
     }
   } catch (err) {
     logger.error({ err, to, websiteName }, "Exception sending alert email");
+  }
+}
+
+/**
+ * Send a password reset email.
+ */
+export async function sendPasswordResetEmail(params: {
+  to: string;
+  userName: string;
+  resetLink: string;
+}): Promise<void> {
+  const { to, userName, resetLink } = params;
+
+  if (!process.env.RESEND_API_KEY) {
+    logger.warn("RESEND_API_KEY not set, skipping password reset email");
+    return;
+  }
+
+  const subject = "Reset your 404 Monitor password";
+
+  const htmlBody = `
+    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #0891b2;">Reset Your Password</h2>
+      <p>Hi ${userName},</p>
+      <p>We received a request to reset your password. Click the button below to create a new password:</p>
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="${resetLink}" style="display: inline-block; background: #0891b2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Reset Password</a>
+      </div>
+      <p style="color: #6b7280; font-size: 14px;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+      <p style="color: #9ca3af; font-size: 12px;">
+        — The 404 Monitor Team
+      </p>
+    </div>
+  `;
+
+  const textBody = `Reset Your Password\n\nHi ${userName},\n\nWe received a request to reset your password. Click the link below to create a new password:\n\n${resetLink}\n\nThis link expires in 1 hour. If you didn't request this, you can safely ignore this email.\n\n— The 404 Monitor Team`;
+
+  try {
+    const { error } = await resend.emails.send({
+      from: `404 Monitor <${emailFrom}>`,
+      to,
+      subject,
+      html: htmlBody,
+      text: textBody,
+    });
+
+    if (error) {
+      logger.error(
+        { error, to },
+        "Failed to send password reset email via Resend",
+      );
+    } else {
+      logger.info({ to }, "Sent password reset email");
+    }
+  } catch (err) {
+    logger.error({ err, to }, "Exception sending password reset email");
   }
 }

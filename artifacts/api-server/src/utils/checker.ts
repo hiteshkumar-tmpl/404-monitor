@@ -1,8 +1,17 @@
-import { db, websitesTable, monitoredUrlsTable, websiteSitemapsTable } from "@workspace/db";
+import {
+  db,
+  websitesTable,
+  monitoredUrlsTable,
+  websiteSitemapsTable,
+  checkHistoryTable,
+  urlStatusHistoryTable,
+} from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { parseSitemap } from "./sitemapParser";
 import { checkUrlsBatch } from "./urlChecker";
 import { send404Alert } from "./emailer";
+import { sendSlackAlert, type SlackAlertPayload } from "./slack-notifier";
+import { sendTeamsAlert, type TeamsAlertPayload } from "./teams-notifier";
 import { logger } from "../lib/logger";
 
 export interface CheckWebsiteResult {
@@ -13,6 +22,17 @@ export interface CheckWebsiteResult {
   message: string;
 }
 
+type AlertSummaryInterval =
+  | "none"
+  | "realtime"
+  | "daily"
+  | "3days"
+  | "5days"
+  | "7days"
+  | "14days"
+  | "30days"
+  | "custom";
+
 /**
  * Run a full check for a single website:
  * 1. Fetch + re-parse sitemap to discover any new URLs
@@ -20,7 +40,9 @@ export interface CheckWebsiteResult {
  * 3. Detect newly broken URLs (was 200, now 404)
  * 4. Send email alert if needed
  */
-export async function checkWebsite(websiteId: number): Promise<CheckWebsiteResult> {
+export async function checkWebsite(
+  websiteId: number,
+): Promise<CheckWebsiteResult> {
   // Mark website as "checking"
   await db
     .update(websitesTable)
@@ -45,21 +67,33 @@ export async function checkWebsite(websiteId: number): Promise<CheckWebsiteResul
       .from(websiteSitemapsTable)
       .where(eq(websiteSitemapsTable.websiteId, websiteId));
 
-    const allSitemapUrls = [website.sitemapUrl, ...additionalSitemaps.map((s) => s.url)];
+    const allSitemapUrls = [
+      website.sitemapUrl,
+      ...additionalSitemaps.map((s) => s.url),
+    ];
 
     let sitemapUrls: string[] = [];
     for (const sitemapUrl of allSitemapUrls) {
       try {
         const urls = await parseSitemap(sitemapUrl);
         sitemapUrls.push(...urls);
-        logger.info({ websiteId, sitemapUrl, count: urls.length }, "Parsed sitemap");
+        logger.info(
+          { websiteId, sitemapUrl, count: urls.length },
+          "Parsed sitemap",
+        );
       } catch (err) {
-        logger.error({ err, websiteId, sitemapUrl }, "Failed to parse sitemap during check");
+        logger.error(
+          { err, websiteId, sitemapUrl },
+          "Failed to parse sitemap during check",
+        );
       }
     }
     // Deduplicate across sitemaps
     sitemapUrls = [...new Set(sitemapUrls)];
-    logger.info({ websiteId, total: sitemapUrls.length }, "Total unique sitemap URLs across all sitemaps");
+    logger.info(
+      { websiteId, total: sitemapUrls.length },
+      "Total unique sitemap URLs across all sitemaps",
+    );
 
     // Step 2: Upsert new URLs into DB (insert ones not already tracked)
     if (sitemapUrls.length > 0) {
@@ -72,9 +106,9 @@ export async function checkWebsite(websiteId: number): Promise<CheckWebsiteResul
       const newUrls = sitemapUrls.filter((u) => !existingSet.has(u));
 
       if (newUrls.length > 0) {
-        await db.insert(monitoredUrlsTable).values(
-          newUrls.map((url) => ({ websiteId, url }))
-        );
+        await db
+          .insert(monitoredUrlsTable)
+          .values(newUrls.map((url) => ({ websiteId, url })));
         logger.info({ websiteId, count: newUrls.length }, "Inserted new URLs");
       }
     }
@@ -90,25 +124,46 @@ export async function checkWebsite(websiteId: number): Promise<CheckWebsiteResul
         .update(websitesTable)
         .set({ status: "error", lastCheckedAt: new Date() })
         .where(eq(websitesTable.id, websiteId));
-      return { websiteId, checkedUrls: 0, brokenUrls: 0, newBrokenUrls: 0, message: "No URLs to check" };
+      return {
+        websiteId,
+        checkedUrls: 0,
+        brokenUrls: 0,
+        newBrokenUrls: 0,
+        message: "No URLs to check",
+      };
     }
 
     const urlStrings = urlRows.map((r) => r.url);
     const checkResults = await checkUrlsBatch(urlStrings, 5);
 
-    // Step 4: Update URL statuses and detect new breakages
+    // Step 4: Update URL statuses and detect new breakages/fixes
     const newBrokenUrls: string[] = [];
+    const newFixedUrls: string[] = [];
 
     for (const result of checkResults) {
       const existing = urlRows.find((r) => r.url === result.url);
       if (!existing) continue;
 
       const isNowBroken = result.statusCode === 404;
-      const wasOk = !existing.isBroken && (existing.lastStatus === 200 || existing.lastStatus === null);
+      const wasOk =
+        !existing.isBroken &&
+        (existing.lastStatus === 200 || existing.lastStatus === null);
+
+      const wasBroken = existing.isBroken && existing.lastStatus === 404;
+      const isNowOk = result.statusCode === 200;
 
       // Detect transition: was ok (or unchecked) → now 404
       if (isNowBroken && wasOk) {
+        logger.info(
+          { url: result.url, wasOk, existingIsBroken: existing.isBroken },
+          "NEW broken URL detected",
+        );
         newBrokenUrls.push(result.url);
+      }
+
+      // Detect transition: was broken → now fixed
+      if (isNowOk && wasBroken) {
+        newFixedUrls.push(result.url);
       }
 
       await db
@@ -121,6 +176,28 @@ export async function checkWebsite(websiteId: number): Promise<CheckWebsiteResul
           errorMessage: result.errorMessage,
         })
         .where(eq(monitoredUrlsTable.id, existing.id));
+
+      if (isNowBroken && wasOk) {
+        await db.insert(urlStatusHistoryTable).values({
+          websiteId,
+          url: result.url,
+          previousStatus: existing.lastStatus,
+          newStatus: result.statusCode,
+          wasBroken: true,
+          becameFixed: false,
+        });
+      }
+
+      if (isNowOk && wasBroken) {
+        await db.insert(urlStatusHistoryTable).values({
+          websiteId,
+          url: result.url,
+          previousStatus: existing.lastStatus,
+          newStatus: result.statusCode,
+          wasBroken: false,
+          becameFixed: true,
+        });
+      }
     }
 
     // Step 5: Update website summary
@@ -135,8 +212,109 @@ export async function checkWebsite(websiteId: number): Promise<CheckWebsiteResul
       })
       .where(eq(websitesTable.id, websiteId));
 
-    // Step 6: Send email alert for newly broken URLs
+    // Step 5b: Save check history
+    await db.insert(checkHistoryTable).values({
+      websiteId,
+      totalUrls: urlRows.length,
+      brokenUrls: brokenCount,
+    });
+
+    // Step 6: Send alerts based on website settings
+    const shouldSendSlackAlert =
+      website.slackAlertEnabled && website.slackWebhookUrl;
+    const shouldSendTeamsAlert =
+      website.teamsAlertEnabled && website.teamsWebhookUrl;
+    const summaryInterval = (website.alertSummaryInterval ||
+      "none") as AlertSummaryInterval;
+    const slackRealtimeEnabled = website.slackRealtimeAlerts ?? true;
+    const teamsRealtimeEnabled = website.teamsRealtimeAlerts ?? true;
+    const dashboardBaseUrl = process.env.APP_URL || "http://localhost:5173";
+    const dashboardUrl = `${dashboardBaseUrl}/dashboard`;
+
+    const slackPayload: SlackAlertPayload = {
+      websiteId: website.id,
+      websiteName: website.name,
+      brokenUrls: newBrokenUrls,
+      fixedUrls: newFixedUrls,
+      totalUrls: urlRows.length,
+      checkedUrls: checkResults.length,
+      dashboardUrl,
+    };
+
+    const teamsPayload: TeamsAlertPayload = {
+      websiteId: website.id,
+      websiteName: website.name,
+      brokenUrls: newBrokenUrls,
+      fixedUrls: newFixedUrls,
+      totalUrls: urlRows.length,
+      checkedUrls: checkResults.length,
+      dashboardUrl,
+    };
+
+    const hasChanges = newBrokenUrls.length > 0 || newFixedUrls.length > 0;
+
+    const getIntervalDays = (interval: AlertSummaryInterval): number => {
+      switch (interval) {
+        case "daily":
+          return 1;
+        case "3days":
+          return 3;
+        case "5days":
+          return 5;
+        case "7days":
+          return 7;
+        case "14days":
+          return 14;
+        case "30days":
+          return 30;
+        case "custom":
+          return website.customSummaryDays || 7;
+        default:
+          return 0;
+      }
+    };
+
+    const shouldSendSummary = (
+      lastSentAt: Date | null,
+      intervalDays: number,
+    ): boolean => {
+      if (!lastSentAt) return true;
+      const elapsed = Date.now() - lastSentAt.getTime();
+      const intervalMs = intervalDays * 24 * 60 * 60 * 1000;
+      return elapsed >= intervalMs;
+    };
+
+    const intervalDays = getIntervalDays(summaryInterval);
+
+    logger.info(
+      {
+        websiteId: website.id,
+        shouldSendEmail: newBrokenUrls.length > 0,
+        shouldSendSlack: shouldSendSlackAlert,
+        shouldSendTeams: shouldSendTeamsAlert,
+        summaryInterval,
+        intervalDays,
+        hasChanges,
+        newBrokenUrls: newBrokenUrls.length,
+        newFixedUrls: newFixedUrls.length,
+        slackRealtimeEnabled,
+        teamsRealtimeEnabled,
+        lastSlackSummarySentAt: website.lastSlackSummarySentAt,
+        lastTeamsSummarySentAt: website.lastTeamsSummarySentAt,
+      },
+      "Alert decision check",
+    );
+
+    // Send email alert for newly broken URLs (existing behavior)
     if (newBrokenUrls.length > 0) {
+      logger.info(
+        {
+          to: website.alertEmail,
+          count: newBrokenUrls.length,
+          brokenUrls: newBrokenUrls,
+        },
+        "Sending email alert",
+      );
       await send404Alert({
         to: website.alertEmail,
         websiteName: website.name,
@@ -144,16 +322,223 @@ export async function checkWebsite(websiteId: number): Promise<CheckWebsiteResul
       });
     }
 
-    logger.info({ websiteId, checkedUrls: urlRows.length, brokenCount, newBroken: newBrokenUrls.length }, "Website check complete");
+    // Helper to build summary payload for day-wise summary
+    const buildSummaryPayload = async (
+      interval: AlertSummaryInterval,
+    ): Promise<{
+      brokenUrls: string[];
+      fixedUrls: string[];
+      totalUrls: number;
+      checkedUrls: number;
+      currentStatus: {
+        totalUrls: number;
+        brokenUrls: number;
+        okUrls: number;
+      };
+      dayWiseBreakdown: Array<{
+        date: string;
+        broke: number;
+        fixed: number;
+      }>;
+    }> => {
+      const days = getIntervalDays(interval);
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const history = await db
+        .select()
+        .from(urlStatusHistoryTable)
+        .where(eq(urlStatusHistoryTable.websiteId, websiteId));
+
+      const recentHistory = history.filter((h) => h.changedAt >= since);
+
+      const brokenUrls = recentHistory
+        .filter((h) => h.wasBroken && !h.becameFixed)
+        .map((h) => h.url);
+      const fixedUrls = recentHistory
+        .filter((h) => h.becameFixed)
+        .map((h) => h.url);
+
+      const currentBroken = urlRows.filter((u) => u.isBroken).length;
+      const currentOk = urlRows.length - currentBroken;
+
+      const dayMap = new Map<
+        string,
+        { date: string; broke: number; fixed: number }
+      >();
+      for (let i = 0; i < days; i++) {
+        const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+        const dateStr = d.toISOString().split("T")[0];
+        dayMap.set(dateStr, { date: dateStr, broke: 0, fixed: 0 });
+      }
+
+      for (const entry of recentHistory) {
+        const dateStr = entry.changedAt.toISOString().split("T")[0];
+        const day = dayMap.get(dateStr);
+        if (day) {
+          if (entry.becameFixed) {
+            day.fixed += 1;
+          } else if (entry.wasBroken) {
+            day.broke += 1;
+          }
+        }
+      }
+
+      const dayWiseBreakdown = Array.from(dayMap.values()).sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+      );
+
+      return {
+        brokenUrls,
+        fixedUrls,
+        totalUrls: urlRows.length,
+        checkedUrls: checkResults.length,
+        currentStatus: {
+          totalUrls: urlRows.length,
+          brokenUrls: currentBroken,
+          okUrls: currentOk,
+        },
+        dayWiseBreakdown,
+      };
+    };
+
+    // Send Slack alerts
+    if (shouldSendSlackAlert) {
+      const lastSentAt = website.lastSlackSummarySentAt;
+      let sendSummary =
+        summaryInterval !== "none" &&
+        summaryInterval !== "realtime" &&
+        shouldSendSummary(lastSentAt, intervalDays);
+
+      // For realtime, always send summary
+      if (summaryInterval === "realtime") {
+        sendSummary = true;
+      }
+
+      if (sendSummary && summaryInterval !== "realtime") {
+        // Send day-wise summary (not realtime)
+        const summaryData = await buildSummaryPayload(summaryInterval);
+        logger.info(
+          { webhookUrl: website.slackWebhookUrl, summaryInterval },
+          "Sending Slack day-wise summary",
+        );
+        await sendSlackAlert(
+          website.slackWebhookUrl!,
+          {
+            ...slackPayload,
+            brokenUrls: summaryData.brokenUrls,
+            fixedUrls: summaryData.fixedUrls,
+            currentStatus: summaryData.currentStatus,
+            dayWiseBreakdown: summaryData.dayWiseBreakdown,
+          },
+          "summary",
+        );
+
+        // Update last summary sent time
+        await db
+          .update(websitesTable)
+          .set({ lastSlackSummarySentAt: new Date() })
+          .where(eq(websitesTable.id, websiteId));
+      } else if (summaryInterval === "realtime") {
+        // Realtime - always send summary after every check
+        logger.info(
+          { webhookUrl: website.slackWebhookUrl, summaryInterval },
+          "Sending Slack realtime summary",
+        );
+        await sendSlackAlert(website.slackWebhookUrl!, slackPayload, "summary");
+      } else if (hasChanges && slackRealtimeEnabled) {
+        // Non-realtime, has changes, and realtime alerts enabled - send broken/fixed
+        logger.info(
+          { webhookUrl: website.slackWebhookUrl, summaryInterval },
+          "Sending Slack broken/fixed alert",
+        );
+        if (newBrokenUrls.length > 0) {
+          await sendSlackAlert(
+            website.slackWebhookUrl!,
+            slackPayload,
+            "broken",
+          );
+        } else if (newFixedUrls.length > 0) {
+          await sendSlackAlert(website.slackWebhookUrl!, slackPayload, "fixed");
+        }
+      }
+    }
+
+    // Send Teams alerts
+    if (shouldSendTeamsAlert) {
+      const lastSentAt = website.lastTeamsSummarySentAt;
+      let sendSummary =
+        summaryInterval !== "none" &&
+        summaryInterval !== "realtime" &&
+        shouldSendSummary(lastSentAt, intervalDays);
+
+      if (summaryInterval === "realtime") {
+        sendSummary = true;
+      }
+
+      if (sendSummary && summaryInterval !== "realtime") {
+        const summaryData = await buildSummaryPayload(summaryInterval);
+        logger.info(
+          { webhookUrl: website.teamsWebhookUrl, summaryInterval },
+          "Sending Teams day-wise summary",
+        );
+        await sendTeamsAlert(
+          website.teamsWebhookUrl!,
+          {
+            ...teamsPayload,
+            brokenUrls: summaryData.brokenUrls,
+            fixedUrls: summaryData.fixedUrls,
+            currentStatus: summaryData.currentStatus,
+            dayWiseBreakdown: summaryData.dayWiseBreakdown,
+          },
+          "summary",
+        );
+
+        await db
+          .update(websitesTable)
+          .set({ lastTeamsSummarySentAt: new Date() })
+          .where(eq(websitesTable.id, websiteId));
+      } else if (summaryInterval === "realtime") {
+        logger.info(
+          { webhookUrl: website.teamsWebhookUrl, summaryInterval },
+          "Sending Teams realtime summary",
+        );
+        await sendTeamsAlert(website.teamsWebhookUrl!, teamsPayload, "summary");
+      } else if (hasChanges && teamsRealtimeEnabled) {
+        logger.info(
+          { webhookUrl: website.teamsWebhookUrl, summaryInterval },
+          "Sending Teams broken/fixed alert",
+        );
+        if (newBrokenUrls.length > 0) {
+          await sendTeamsAlert(
+            website.teamsWebhookUrl!,
+            teamsPayload,
+            "broken",
+          );
+        } else if (newFixedUrls.length > 0) {
+          await sendTeamsAlert(website.teamsWebhookUrl!, teamsPayload, "fixed");
+        }
+      }
+    }
+
+    logger.info(
+      {
+        websiteId,
+        checkedUrls: urlRows.length,
+        brokenCount,
+        newBroken: newBrokenUrls.length,
+      },
+      "Website check complete",
+    );
 
     return {
       websiteId,
       checkedUrls: urlRows.length,
       brokenUrls: brokenCount,
       newBrokenUrls: newBrokenUrls.length,
-      message: newBrokenUrls.length > 0
-        ? `Found ${newBrokenUrls.length} new broken URL(s), alert sent`
-        : "Check complete, no new issues",
+      message:
+        newBrokenUrls.length > 0
+          ? `Found ${newBrokenUrls.length} new broken URL(s), alert sent`
+          : "Check complete, no new issues",
     };
   } catch (err) {
     logger.error({ err, websiteId }, "Error during website check");
@@ -170,13 +555,19 @@ export async function checkWebsite(websiteId: number): Promise<CheckWebsiteResul
  */
 export async function checkAllWebsites(): Promise<void> {
   const websites = await db.select().from(websitesTable);
-  logger.info({ count: websites.length }, "Running scheduled check for all websites");
+  logger.info(
+    { count: websites.length },
+    "Running scheduled check for all websites",
+  );
 
   for (const website of websites) {
     try {
       await checkWebsite(website.id);
     } catch (err) {
-      logger.error({ err, websiteId: website.id }, "Error checking website in scheduled run");
+      logger.error(
+        { err, websiteId: website.id },
+        "Error checking website in scheduled run",
+      );
     }
   }
 }

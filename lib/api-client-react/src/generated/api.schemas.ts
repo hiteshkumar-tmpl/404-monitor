@@ -18,6 +18,60 @@ export const WebsiteStatus = {
   error: "error",
 } as const;
 
+export type UserRole = (typeof UserRole)[keyof typeof UserRole];
+
+export const UserRole = {
+  admin: "admin",
+  user: "user",
+} as const;
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  name: string;
+  role: UserRole;
+  createdAt: string;
+  lastLoginAt?: string | null;
+}
+
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+  role: UserRole;
+  createdAt: string;
+  lastLoginAt?: string | null;
+}
+
+export interface CreateUserRequest {
+  name: string;
+  email: string;
+  password: string;
+  role: UserRole;
+}
+
+export interface UpdateUserRequest {
+  name?: string;
+  role?: UserRole;
+}
+
+export interface AdminStats {
+  totalUsers: number;
+  totalWebsites: number;
+  totalUrls: number;
+  totalBroken: number;
+}
+
 export interface Website {
   id: number;
   name: string;
@@ -29,13 +83,47 @@ export interface Website {
   lastCheckedAt?: string | null;
   createdAt: string;
   status: WebsiteStatus;
+  userId: number;
+  slackWebhookUrl?: string | null;
+  slackAlertEnabled: boolean;
+  slackRealtimeAlerts: boolean;
+  teamsWebhookUrl?: string | null;
+  teamsAlertEnabled: boolean;
+  teamsRealtimeAlerts: boolean;
+  alertSummaryInterval: AlertSummaryInterval;
+  customSummaryDays?: number | null;
+  lastSlackSummarySentAt?: string | null;
+  lastTeamsSummarySentAt?: string | null;
 }
+
+export type AlertSummaryInterval =
+  (typeof AlertSummaryInterval)[keyof typeof AlertSummaryInterval];
+
+export const AlertSummaryInterval = {
+  none: "none",
+  realtime: "realtime",
+  daily: "daily",
+  threeDays: "3days",
+  fiveDays: "5days",
+  sevenDays: "7days",
+  fourteenDays: "14days",
+  thirtyDays: "30days",
+  custom: "custom",
+} as const;
 
 export interface UpdateWebsiteRequest {
   name?: string;
   sitemapUrl?: string;
   alertEmail?: string;
   checkIntervalMinutes?: number;
+  slackWebhookUrl?: string;
+  slackAlertEnabled?: boolean;
+  slackRealtimeAlerts?: boolean;
+  teamsWebhookUrl?: string;
+  teamsAlertEnabled?: boolean;
+  teamsRealtimeAlerts?: boolean;
+  alertSummaryInterval?: AlertSummaryInterval;
+  customSummaryDays?: number | null;
 }
 
 export interface WebsiteSitemap {
@@ -54,6 +142,12 @@ export interface AddWebsiteRequest {
   sitemapUrl: string;
   alertEmail: string;
   checkIntervalMinutes?: number;
+  slackWebhookUrl?: string;
+  slackAlertEnabled?: boolean;
+  teamsWebhookUrl?: string;
+  teamsAlertEnabled?: boolean;
+  alertSummaryInterval?: AlertSummaryInterval;
+  customSummaryDays?: number | null;
 }
 
 export interface MonitoredUrl {
@@ -82,6 +176,40 @@ export interface DashboardSummary {
   websitesWithErrors: number;
 }
 
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  newPassword: string;
+}
+
+export interface CheckHistory {
+  checkedAt: string;
+  totalUrls: number;
+  brokenUrls: number;
+}
+
+export interface WebsiteHistory {
+  websiteId: number;
+  websiteName: string;
+  days: number;
+  history: CheckHistory[];
+}
+
+export interface TrendsResponse {
+  days: number;
+  overallTrend: Array<{ date: string; totalBroken: number }>;
+  websites: WebsiteTrend[];
+}
+
+export interface WebsiteTrend {
+  id: number;
+  name: string;
+  history: Array<{ date: string; broken: number }>;
+}
+
 export interface SuccessResponse {
   success: boolean;
   message: string;
@@ -106,3 +234,46 @@ export const GetWebsiteUrlsStatus = {
   broken: "broken",
   ok: "ok",
 } as const;
+
+export type GetWebsiteHistoryParams = {
+  /**
+   * Number of days to retrieve (default 7, max 365)
+   */
+  days?: number;
+};
+
+export type GetDashboardTrendsParams = {
+  /**
+   * Number of days to retrieve (default 7, max 365)
+   */
+  days?: number;
+};
+
+export interface DayWiseBreakdown {
+  date: string;
+  broke: number;
+  fixed: number;
+}
+
+export interface CurrentStatus {
+  totalUrls: number;
+  brokenUrls: number;
+  okUrls: number;
+}
+
+export interface SummaryData {
+  websiteId: number;
+  websiteName: string;
+  interval: string;
+  currentStatus: CurrentStatus;
+  dayWiseBreakdown: DayWiseBreakdown[];
+  recentlyBrokenUrls: string[];
+  recentlyFixedUrls: string[];
+}
+
+export type GetWebsiteSummaryDataParams = {
+  /**
+   * Number of days to retrieve (default 7)
+   */
+  days?: number;
+};

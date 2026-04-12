@@ -1,6 +1,5 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
   description: 404 Monitor API specification
@@ -10,6 +9,10 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: users
+    description: User management (admin only)
   - name: websites
     description: Monitored website operations
   - name: urls
@@ -29,11 +32,350 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout and clear auth cookie
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get current authenticated user
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/password:
+    patch:
+      operationId: changePassword
+      tags: [auth]
+      summary: Change current user's password
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Current password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/forgot-password:
+    post:
+      operationId: forgotPassword
+      tags: [auth]
+      summary: Request a password reset email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "200":
+          description: Reset email sent if account exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      tags: [auth]
+      summary: Reset password using a token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password reset successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users:
+    get:
+      operationId: getUsers
+      tags: [users]
+      summary: List all users (admin only)
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a new user (admin only)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/{id}:
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update a user (admin only)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      summary: Delete a user (admin only)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Cannot delete your own account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/stats:
+    get:
+      operationId: getAdminStats
+      tags: [users]
+      summary: Get admin dashboard stats
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Admin statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /websites:
     get:
       operationId: getWebsites
       tags: [websites]
-      summary: List all monitored websites
+      summary: List monitored websites
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: List of websites
@@ -43,10 +385,18 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Website"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     post:
       operationId: addWebsite
       tags: [websites]
       summary: Add a new website to monitor
+      security:
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -66,12 +416,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /websites/{id}:
     get:
       operationId: getWebsite
       tags: [websites]
       summary: Get a single website by ID
+      security:
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -85,6 +443,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Website"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Website not found
           content:
@@ -95,6 +465,8 @@ paths:
       operationId: deleteWebsite
       tags: [websites]
       summary: Delete a monitored website
+      security:
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -108,6 +480,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Website not found
           content:
@@ -120,6 +504,8 @@ paths:
       operationId: updateWebsite
       tags: [websites]
       summary: Update a website's sitemap URL or alert email
+      security:
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -145,6 +531,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Website not found
           content:
@@ -157,6 +555,8 @@ paths:
       operationId: getWebsiteUrls
       tags: [urls]
       summary: Get all URLs for a website
+      security:
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -179,6 +579,18 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/MonitoredUrl"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Website not found
           content:
@@ -191,6 +603,8 @@ paths:
       operationId: getWebsiteSitemaps
       tags: [websites]
       summary: List all sitemap URLs for a website
+      security:
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -206,6 +620,18 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/WebsiteSitemap"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Website not found
           content:
@@ -216,6 +642,8 @@ paths:
       operationId: addSitemap
       tags: [websites]
       summary: Add a sitemap URL to a website
+      security:
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -241,6 +669,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Website not found
           content:
@@ -253,6 +693,8 @@ paths:
       operationId: deleteSitemap
       tags: [websites]
       summary: Remove a sitemap URL from a website
+      security:
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -271,6 +713,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Not found
           content:
@@ -283,6 +737,8 @@ paths:
       operationId: triggerCheck
       tags: [websites]
       summary: Manually trigger a check for a website
+      security:
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -296,6 +752,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CheckResult"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Website not found
           content:
@@ -308,6 +776,8 @@ paths:
       operationId: getDashboardSummary
       tags: [websites]
       summary: Get summary stats for the dashboard
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: Dashboard summary
@@ -315,6 +785,87 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DashboardSummary"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /websites/{id}/history:
+    get:
+      operationId: getWebsiteHistory
+      tags: [websites]
+      summary: Get check history for a website
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 7
+          description: Number of days to retrieve (default 7, max 365)
+      responses:
+        "200":
+          description: Website check history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebsiteHistory"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /dashboard/trends:
+    get:
+      operationId: getDashboardTrends
+      tags: [websites]
+      summary: Get aggregate trends across all websites
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 7
+          description: Number of days to retrieve (default 7, max 365)
+      responses:
+        "200":
+          description: Dashboard trends
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrendsResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
 components:
   schemas:
@@ -325,6 +876,124 @@ components:
           type: string
       required:
         - status
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    ChangePasswordRequest:
+      type: object
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 6
+      required:
+        - currentPassword
+        - newPassword
+
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, user]
+        createdAt:
+          type: string
+        lastLoginAt:
+          type: string
+          nullable: true
+      required:
+        - id
+        - email
+        - name
+        - role
+        - createdAt
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, user]
+        createdAt:
+          type: string
+        lastLoginAt:
+          type: string
+          nullable: true
+      required:
+        - id
+        - email
+        - name
+        - role
+        - createdAt
+
+    CreateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        role:
+          type: string
+          enum: [admin, user]
+      required:
+        - name
+        - email
+        - password
+        - role
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, user]
+
+    AdminStats:
+      type: object
+      properties:
+        totalUsers:
+          type: integer
+        totalWebsites:
+          type: integer
+        totalUrls:
+          type: integer
+        totalBroken:
+          type: integer
+      required:
+        - totalUsers
+        - totalWebsites
+        - totalUrls
+        - totalBroken
 
     Website:
       type: object
@@ -351,6 +1020,37 @@ components:
         status:
           type: string
           enum: [pending, checking, ok, error]
+        userId:
+          type: integer
+        slackWebhookUrl:
+          type: string
+          nullable: true
+        slackAlertEnabled:
+          type: boolean
+        teamsWebhookUrl:
+          type: string
+          nullable: true
+        teamsAlertEnabled:
+          type: boolean
+        teamsRealtimeAlerts:
+          type: boolean
+          default: true
+        slackRealtimeAlerts:
+          type: boolean
+          default: true
+        alertSummaryInterval:
+          type: string
+          enum:
+            [none, realtime, daily, 3days, 5days, 7days, 14days, 30days, custom]
+        customSummaryDays:
+          type: integer
+          nullable: true
+        lastSlackSummarySentAt:
+          type: string
+          nullable: true
+        lastTeamsSummarySentAt:
+          type: string
+          nullable: true
       required:
         - id
         - name
@@ -361,6 +1061,12 @@ components:
         - checkIntervalMinutes
         - createdAt
         - status
+        - userId
+        - slackAlertEnabled
+        - slackRealtimeAlerts
+        - teamsAlertEnabled
+        - teamsRealtimeAlerts
+        - alertSummaryInterval
 
     UpdateWebsiteRequest:
       type: object
@@ -373,6 +1079,27 @@ components:
           type: string
         checkIntervalMinutes:
           type: integer
+        slackWebhookUrl:
+          type: string
+          nullable: true
+        slackAlertEnabled:
+          type: boolean
+        slackRealtimeAlerts:
+          type: boolean
+        teamsWebhookUrl:
+          type: string
+          nullable: true
+        teamsAlertEnabled:
+          type: boolean
+        teamsRealtimeAlerts:
+          type: boolean
+        alertSummaryInterval:
+          type: string
+          enum:
+            [none, realtime, daily, 3days, 5days, 7days, 14days, 30days, custom]
+        customSummaryDays:
+          type: integer
+          nullable: true
 
     WebsiteSitemap:
       type: object
@@ -410,6 +1137,23 @@ components:
           type: string
         checkIntervalMinutes:
           type: integer
+        slackWebhookUrl:
+          type: string
+          nullable: true
+        slackAlertEnabled:
+          type: boolean
+        teamsWebhookUrl:
+          type: string
+          nullable: true
+        teamsAlertEnabled:
+          type: boolean
+        alertSummaryInterval:
+          type: string
+          enum:
+            [none, realtime, daily, 3days, 5days, 7days, 14days, 30days, custom]
+        customSummaryDays:
+          type: integer
+          nullable: true
       required:
         - name
         - sitemapUrl
@@ -481,6 +1225,104 @@ components:
         - totalBroken
         - websitesWithErrors
 
+    ForgotPasswordRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+        - email
+
+    ResetPasswordRequest:
+      type: object
+      properties:
+        token:
+          type: string
+        newPassword:
+          type: string
+          minLength: 6
+      required:
+        - token
+        - newPassword
+
+    CheckHistory:
+      type: object
+      properties:
+        checkedAt:
+          type: string
+        totalUrls:
+          type: integer
+        brokenUrls:
+          type: integer
+      required:
+        - checkedAt
+        - totalUrls
+        - brokenUrls
+
+    WebsiteHistory:
+      type: object
+      properties:
+        websiteId:
+          type: integer
+        websiteName:
+          type: string
+        days:
+          type: integer
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/CheckHistory"
+      required:
+        - websiteId
+        - websiteName
+        - days
+        - history
+
+    TrendsResponse:
+      type: object
+      properties:
+        days:
+          type: integer
+        overallTrend:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+              totalBroken:
+                type: integer
+        websites:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsiteTrend"
+      required:
+        - days
+        - overallTrend
+        - websites
+
+    WebsiteTrend:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        history:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+              broken:
+                type: integer
+      required:
+        - id
+        - name
+        - history
+
     SuccessResponse:
       type: object
       properties:
@@ -499,3 +1341,9 @@ components:
           type: string
       required:
         - error
+
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: auth_token
