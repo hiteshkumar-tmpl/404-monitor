@@ -11,18 +11,24 @@ const urls = [
     id: 1,
     url: "https://example.com/new-broken",
     isBroken: true,
+    isTrackedIssue: true,
+    issueType: "not_found" as const,
     lastStatus: 404,
   },
   {
     id: 2,
     url: "https://example.com/recovered",
     isBroken: false,
+    isTrackedIssue: false,
+    issueType: null,
     lastStatus: 200,
   },
   {
     id: 3,
     url: "https://example.com/stable",
     isBroken: false,
+    isTrackedIssue: false,
+    issueType: null,
     lastStatus: 200,
   },
 ];
@@ -31,9 +37,14 @@ const summary = {
   currentStatus: {
     totalUrls: 3,
     brokenUrls: 1,
+    notFoundUrls: 1,
+    serverErrorUrls: 0,
+    trackedIssueUrls: 1,
     okUrls: 2,
   },
   recentlyBrokenUrls: ["https://example.com/new-broken"],
+  recentlyNotFoundUrls: ["https://example.com/new-broken"],
+  recentlyServerErrorUrls: [],
   recentlyFixedUrls: ["https://example.com/recovered"],
 };
 
@@ -53,7 +64,7 @@ test("triage filters isolate new, resolved, and recent URLs", () => {
 });
 
 test("triage change labels reflect recent issue state", () => {
-  assert.equal(getUrlChangeLabel(urls[0], summary), "New issue");
+  assert.equal(getUrlChangeLabel(urls[0], summary), "New 404");
   assert.equal(getUrlChangeLabel(urls[1], summary), "Recovered");
   assert.equal(getUrlChangeLabel(urls[2], summary), null);
 });

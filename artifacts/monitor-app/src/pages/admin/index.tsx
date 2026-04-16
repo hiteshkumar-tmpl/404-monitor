@@ -134,7 +134,7 @@ export default function AdminDashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium font-mono text-muted-foreground text-destructive">
-              BROKEN URLS
+              TRACKED ISSUES
             </CardTitle>
             <AlertTriangle className="h-4 w-4 text-destructive" />
           </CardHeader>
@@ -143,7 +143,7 @@ export default function AdminDashboard() {
               <Skeleton className="h-8 w-[100px]" />
             ) : (
               <div className="text-2xl font-bold text-destructive">
-                {stats?.totalBroken || 0}
+                {stats?.totalTrackedIssues || stats?.totalBroken || 0}
               </div>
             )}
           </CardContent>
@@ -189,10 +189,10 @@ export default function AdminDashboard() {
                           <Link2 className="w-3 h-3 mr-1" />
                           {website.totalUrls} URLs
                         </span>
-                        {website.brokenUrls > 0 && (
+                        {(website.trackedIssueUrls || website.brokenUrls) > 0 && (
                           <span className="flex items-center text-destructive">
                             <AlertTriangle className="w-3 h-3 mr-1" />
-                            {website.brokenUrls} broken
+                            {website.trackedIssueUrls || website.brokenUrls} issues
                           </span>
                         )}
                         <span className="flex items-center">

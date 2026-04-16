@@ -6,6 +6,7 @@ import {
   MessageSquare,
   CheckCircle2,
 } from "lucide-react";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 export default function SlackHelp() {
   return (
@@ -24,7 +25,7 @@ export default function SlackHelp() {
             <h1 className="text-3xl font-bold">Slack Integration Setup</h1>
           </div>
           <p className="text-muted-foreground">
-            Receive 404 alerts directly in your Slack workspace. Follow these
+            Receive issue alerts directly in your Slack workspace. Follow these
             steps to get your webhook URL.
           </p>
         </div>
@@ -63,8 +64,8 @@ export default function SlackHelp() {
                 <h3 className="font-semibold mb-2">Create a Slack App</h3>
                 <p className="text-sm text-muted-foreground mb-3">
                   If you don't have an existing app, click "Create New App" and
-                  select "From scratch". Give your app a name (e.g., "404
-                  Monitor") and pick your workspace.
+                  select &quot;From scratch&quot;. Give your app a name (e.g.,
+                  &quot;{PRODUCT_NAME}&quot;) and pick your workspace.
                 </p>
               </div>
             </div>
@@ -122,8 +123,8 @@ export default function SlackHelp() {
                   …/services/&lt;workspace-id&gt;/&lt;channel-id&gt;/&lt;secret&gt;
                 </code>
                 <p className="text-sm text-muted-foreground">
-                  Paste that full URL into the Slack Webhook URL field in 404
-                  Monitor.
+                  Paste that full URL into the Slack Webhook URL field in{" "}
+                  {PRODUCT_NAME}.
                 </p>
               </div>
             </div>
@@ -136,9 +137,9 @@ export default function SlackHelp() {
             <div>
               <h3 className="font-semibold text-emerald-500 mb-1">Pro Tip</h3>
               <p className="text-sm text-muted-foreground">
-                Create a dedicated channel for 404 alerts (e.g.,
+                Create a dedicated channel for issue alerts (e.g.,
                 #website-alerts) to keep your notifications organized. You can
-                also add the 404 Monitor bot to multiple channels.
+                also add the {PRODUCT_NAME} app to multiple channels.
               </p>
             </div>
           </div>

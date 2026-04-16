@@ -1,4 +1,9 @@
+import { PRODUCT_NAME } from "../constants/brand";
 import { logger } from "../lib/logger";
+import {
+  getIssueTypeLabel,
+  type IssueAlertEntry,
+} from "./issue-status";
 
 const SLACK_WEBHOOK_REGEX =
   /^https:\/\/hooks\.slack\.com\/services\/[A-Z0-9]+\/[A-Z0-9]+\/[a-zA-Z0-9]+$/;
@@ -10,7 +15,9 @@ export function isSlackWebhookUrl(url: string): boolean {
 export interface SlackAlertPayload {
   websiteId: number;
   websiteName: string;
-  brokenUrls: string[];
+  issues: IssueAlertEntry[];
+  notFoundUrls: string[];
+  serverErrorUrls: string[];
   fixedUrls: string[];
   totalUrls: number;
   checkedUrls: number;
@@ -25,26 +32,35 @@ interface SlackBlock {
   elements?: Array<Record<string, unknown>>;
 }
 
-function formatBrokenUrlsList(urls: string[]): string {
-  if (urls.length === 0) return "None";
-  return urls.map((url) => `• \`${url}\``).join("\n");
-}
-
-function formatFixedUrlsList(urls: string[]): string {
-  if (urls.length === 0) return "None";
-  return urls.map((url) => `• \`${url}\``).join("\n");
-}
-
 interface DayWiseBreakdown {
   date: string;
-  broke: number;
+  broke?: number;
+  notFound: number;
+  serverError: number;
   fixed: number;
 }
 
 interface CurrentStatus {
   totalUrls: number;
-  brokenUrls: number;
+  trackedIssueUrls: number;
+  notFoundUrls: number;
+  serverErrorUrls: number;
   okUrls: number;
+}
+
+function formatIssueList(issues: IssueAlertEntry[]): string {
+  if (issues.length === 0) return "None";
+  return issues
+    .map(
+      (issue) =>
+        `• \`${issue.url}\` (${issue.statusCode} ${getIssueTypeLabel(issue.issueType)})`,
+    )
+    .join("\n");
+}
+
+function formatUrlList(urls: string[]): string {
+  if (urls.length === 0) return "None";
+  return urls.map((url) => `• \`${url}\``).join("\n");
 }
 
 function buildDayWiseSummarySlack(
@@ -52,7 +68,8 @@ function buildDayWiseSummarySlack(
   currentStatus: CurrentStatus,
   dayWiseBreakdown: DayWiseBreakdown[],
 ): { blocks: SlackBlock[] } {
-  const { websiteName, dashboardUrl } = payload;
+  const { websiteName, dashboardUrl, notFoundUrls, serverErrorUrls, fixedUrls } =
+    payload;
   const blocks: SlackBlock[] = [];
 
   blocks.push({
@@ -64,9 +81,7 @@ function buildDayWiseSummarySlack(
     },
   });
 
-  blocks.push({
-    type: "divider",
-  });
+  blocks.push({ type: "divider" });
 
   blocks.push({
     type: "section",
@@ -74,126 +89,80 @@ function buildDayWiseSummarySlack(
       type: "mrkdwn",
       text:
         "*📍 CURRENT STATUS*\n" +
-        `🔴 *${currentStatus.brokenUrls}* Broken  |  ` +
-        `🟢 *${currentStatus.okUrls}* OK  |  ` +
-        `📊 *${currentStatus.totalUrls}* Total`,
+        `🚨 *${currentStatus.trackedIssueUrls}* Issues  |  ` +
+        `🔴 *${currentStatus.notFoundUrls}* 404  |  ` +
+        `🟠 *${currentStatus.serverErrorUrls}* 5xx  |  ` +
+        `🟢 *${currentStatus.okUrls}* OK`,
     },
-  });
-
-  blocks.push({
-    type: "divider",
   });
 
   const recentBreakdown = dayWiseBreakdown.slice(0, 7);
   if (recentBreakdown.length > 0) {
+    blocks.push({ type: "divider" });
     blocks.push({
       type: "section",
-      text: {
-        type: "mrkdwn",
-        text: "*📅 DAY-WISE BREAKDOWN*",
-      },
+      text: { type: "mrkdwn", text: "*📅 DAY-WISE BREAKDOWN*" },
     });
 
-    const breakdownLines = recentBreakdown
-      .map((day) => {
-        const d = new Date(day.date);
-        const dateStr = d.toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-        });
-        const brokeEmoji = day.broke > 0 ? "🔴" : "⚪";
-        const fixedEmoji = day.fixed > 0 ? "🟢" : "⚪";
-        return `${dateStr}  │  ${brokeEmoji} *${day.broke}* broke  │  ${fixedEmoji} *${day.fixed}* fixed`;
-      })
-      .join("\n");
-
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: breakdownLines,
+        text: recentBreakdown
+          .map((day) => {
+            const d = new Date(day.date);
+            const dateStr = d.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+            });
+            return `${dateStr}  │  🔴 *${day.notFound}* 404  │  🟠 *${day.serverError}* 5xx  │  🟢 *${day.fixed}* fixed`;
+          })
+          .join("\n"),
       },
     });
   }
 
-  if (payload.brokenUrls.length > 0) {
-    blocks.push({
-      type: "divider",
-    });
-
+  if (notFoundUrls.length > 0) {
+    blocks.push({ type: "divider" });
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*🆕 NEWLY BROKEN (${payload.brokenUrls.length})*`,
-      },
-    });
-
-    const brokenList = payload.brokenUrls.slice(0, 10);
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text:
-          brokenList
-            .map(
-              (url) =>
-                `• \`${url.length > 60 ? url.substring(0, 60) + "..." : url}\``,
-            )
-            .join("\n") +
-          (payload.brokenUrls.length > 10
-            ? `\n_... and ${payload.brokenUrls.length - 10} more_`
-            : ""),
+        text: `*404 URLS (${notFoundUrls.length})*\n${formatUrlList(notFoundUrls.slice(0, 10))}`,
       },
     });
   }
 
-  if (payload.fixedUrls.length > 0) {
-    blocks.push({
-      type: "divider",
-    });
-
+  if (serverErrorUrls.length > 0) {
+    blocks.push({ type: "divider" });
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*✅ RECOVERED (${payload.fixedUrls.length})*`,
+        text: `*5xx URLS (${serverErrorUrls.length})*\n${formatUrlList(serverErrorUrls.slice(0, 10))}`,
       },
     });
+  }
 
-    const fixedList = payload.fixedUrls.slice(0, 10);
+  if (fixedUrls.length > 0) {
+    blocks.push({ type: "divider" });
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text:
-          fixedList
-            .map(
-              (url) =>
-                `• \`${url.length > 60 ? url.substring(0, 60) + "..." : url}\``,
-            )
-            .join("\n") +
-          (payload.fixedUrls.length > 10
-            ? `\n_... and ${payload.fixedUrls.length - 10} more_`
-            : ""),
+        text: `*RECOVERED (${fixedUrls.length})*\n${formatUrlList(fixedUrls.slice(0, 10))}`,
       },
     });
   }
 
   if (dashboardUrl) {
-    blocks.push({
-      type: "divider",
-    });
-
+    blocks.push({ type: "divider" });
     blocks.push({
       type: "actions",
       elements: [
         {
           type: "button",
-          text: {
-            type: "plain_text",
-            text: "🔗 View Dashboard",
-          },
+          text: { type: "plain_text", text: "View Dashboard" },
           url: dashboardUrl,
         },
       ],
@@ -202,12 +171,7 @@ function buildDayWiseSummarySlack(
 
   blocks.push({
     type: "context",
-    elements: [
-      {
-        type: "mrkdwn",
-        text: `Sent by 404 Monitor`,
-      },
-    ],
+    elements: [{ type: "mrkdwn", text: `Sent by ${PRODUCT_NAME}` }],
   });
 
   return { blocks };
@@ -217,15 +181,11 @@ function buildSlackMessage(
   payload: SlackAlertPayload,
   alertType: "broken" | "fixed" | "summary",
 ): { blocks: SlackBlock[] } {
-  const {
-    websiteName,
-    brokenUrls,
-    fixedUrls,
-    totalUrls,
-    checkedUrls,
-    dashboardUrl,
-  } = payload;
-
+  const { websiteName, issues, fixedUrls, totalUrls, checkedUrls, dashboardUrl } =
+    payload;
+  const notFoundCount = payload.notFoundUrls.length;
+  const serverErrorCount = payload.serverErrorUrls.length;
+  const issueCount = issues.length;
   const blocks: SlackBlock[] = [];
 
   if (alertType === "broken") {
@@ -233,35 +193,32 @@ function buildSlackMessage(
       type: "header",
       text: {
         type: "plain_text",
-        text: `🚨 404 Alert: ${websiteName}`,
+        text: `🚨 Issue Alert: ${websiteName}`,
         emoji: true,
       },
     });
-
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*New broken URLs detected*\n${brokenUrls.length > 0 ? "" : "No new broken links."}`,
+        text:
+          `*New tracked issues detected*\n` +
+          `• 404 URLs: ${notFoundCount}\n` +
+          `• 5xx URLs: ${serverErrorCount}`,
       },
     });
-
-    if (brokenUrls.length > 0) {
+    if (issueCount > 0) {
       blocks.push({
         type: "section",
-        text: {
-          type: "mrkdwn",
-          text: formatBrokenUrlsList(brokenUrls),
-        },
+        text: { type: "mrkdwn", text: formatIssueList(issues.slice(0, 10)) },
       });
     }
-
     blocks.push({
       type: "context",
       elements: [
         {
           type: "mrkdwn",
-          text: `Checked ${checkedUrls} URLs | Found ${brokenUrls.length} broken`,
+          text: `Checked ${checkedUrls} URLs | Found ${issueCount} new tracked issue(s)`,
         },
       ],
     });
@@ -274,7 +231,6 @@ function buildSlackMessage(
         emoji: true,
       },
     });
-
     blocks.push({
       type: "section",
       text: {
@@ -282,14 +238,10 @@ function buildSlackMessage(
         text: `*URLs are now working again*\n${fixedUrls.length > 0 ? "" : "No URLs recovered."}`,
       },
     });
-
     if (fixedUrls.length > 0) {
       blocks.push({
         type: "section",
-        text: {
-          type: "mrkdwn",
-          text: formatFixedUrlsList(fixedUrls),
-        },
+        text: { type: "mrkdwn", text: formatUrlList(fixedUrls.slice(0, 10)) },
       });
     }
   } else {
@@ -301,31 +253,16 @@ function buildSlackMessage(
         emoji: true,
       },
     });
-
-    const brokenCount = brokenUrls.length;
-    const fixedCount = fixedUrls.length;
-
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*Summary*\n• Total URLs: ${totalUrls}\n• Checked: ${checkedUrls}\n• Broken: ${brokenCount}\n• Fixed: ${fixedCount}`,
+        text:
+          `*Summary*\n• Total URLs: ${totalUrls}\n• Checked: ${checkedUrls}\n` +
+          `• Tracked issues: ${notFoundCount + serverErrorCount}\n` +
+          `• 404 URLs: ${notFoundCount}\n• 5xx URLs: ${serverErrorCount}\n• Fixed: ${fixedUrls.length}`,
       },
     });
-
-    if (brokenUrls.length > 0 || fixedUrls.length > 0) {
-      const changes: string[] = [];
-      if (brokenUrls.length > 0) changes.push(`${brokenUrls.length} broken`);
-      if (fixedUrls.length > 0) changes.push(`${fixedUrls.length} fixed`);
-
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*Changes*\n• ${changes.join(", ")}`,
-        },
-      });
-    }
   }
 
   if (dashboardUrl) {
@@ -334,10 +271,7 @@ function buildSlackMessage(
       elements: [
         {
           type: "button",
-          text: {
-            type: "plain_text",
-            text: "View Dashboard",
-          },
+          text: { type: "plain_text", text: "View Dashboard" },
           url: dashboardUrl,
         },
       ],
@@ -346,12 +280,7 @@ function buildSlackMessage(
 
   blocks.push({
     type: "context",
-    elements: [
-      {
-        type: "mrkdwn",
-        text: `Sent by 404 Monitor`,
-      },
-    ],
+    elements: [{ type: "mrkdwn", text: `Sent by ${PRODUCT_NAME}` }],
   });
 
   return { blocks };
@@ -367,21 +296,14 @@ export async function sendSlackAlert(
     return;
   }
 
-  let message: { blocks: SlackBlock[] };
-
-  if (
-    alertType === "summary" &&
-    payload.dayWiseBreakdown &&
-    payload.currentStatus
-  ) {
-    message = buildDayWiseSummarySlack(
-      payload,
-      payload.currentStatus,
-      payload.dayWiseBreakdown,
-    );
-  } else {
-    message = buildSlackMessage(payload, alertType);
-  }
+  const message =
+    alertType === "summary" && payload.dayWiseBreakdown && payload.currentStatus
+      ? buildDayWiseSummarySlack(
+          payload,
+          payload.currentStatus,
+          payload.dayWiseBreakdown,
+        )
+      : buildSlackMessage(payload, alertType);
 
   try {
     const response = await fetch(webhookUrl, {
@@ -405,7 +327,7 @@ export async function sendSlackAlert(
         {
           websiteId: payload.websiteId,
           alertType,
-          brokenCount: payload.brokenUrls.length,
+          issueCount: payload.issues.length,
           fixedCount: payload.fixedUrls.length,
         },
         "Sent Slack alert",

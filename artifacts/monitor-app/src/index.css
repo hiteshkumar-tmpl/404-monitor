@@ -218,6 +218,37 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
+
+  a[href]:not([aria-disabled="true"]) {
+    @apply cursor-pointer;
+  }
+
+  a[href][aria-disabled="true"] {
+    @apply cursor-not-allowed;
+  }
+
+  button:not(:disabled):not([aria-disabled="true"]),
+  input[type="submit"]:not(:disabled),
+  input[type="button"]:not(:disabled),
+  input[type="reset"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+
+  button:disabled,
+  button[aria-disabled="true"],
+  input[type="submit"]:disabled,
+  input[type="button"]:disabled,
+  input[type="reset"]:disabled {
+    @apply cursor-not-allowed;
+  }
+
+  [role="button"]:not([aria-disabled="true"]) {
+    @apply cursor-pointer;
+  }
+
+  [role="button"][aria-disabled="true"] {
+    @apply cursor-not-allowed;
+  }
 }
 
 @layer utilities {

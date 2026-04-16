@@ -100,6 +100,10 @@ export function getAlertCadenceDescription(
 export const propertyFormSchema = z
   .object({
     name: z.string().min(2, "Name must be at least 2 characters."),
+    ownerName: z.string().optional(),
+    priority: z.enum(["low", "medium", "high"]).optional().default("medium"),
+    tags: z.string().optional(),
+    notes: z.string().optional(),
     sitemapUrl: z
       .string()
       .url("Must be a valid URL starting with http:// or https://"),

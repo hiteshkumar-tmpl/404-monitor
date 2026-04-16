@@ -11,7 +11,7 @@ export async function parseSitemap(sitemapUrl: string): Promise<string[]> {
 
   const response = await axios.get(sitemapUrl, {
     timeout: 10000,
-    headers: { "User-Agent": "404Monitor/1.0" },
+    headers: { "User-Agent": "SiteWatch/1.0" },
     responseType: "text",
   });
 

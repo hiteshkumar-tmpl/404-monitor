@@ -63,6 +63,10 @@ export default function AddWebsite() {
     resolver: zodResolver(propertyFormSchema),
     defaultValues: {
       name: "",
+      ownerName: "",
+      priority: "medium",
+      tags: "",
+      notes: "",
       sitemapUrl: "",
       alertEmail: "",
       checkIntervalMinutes: 60,
@@ -80,7 +84,11 @@ export default function AddWebsite() {
   const selectedInterval = form.watch("alertSummaryInterval");
   const checkIntervalMinutes = form.watch("checkIntervalMinutes") ?? 60;
   const propertyName = form.watch("name") || "This property";
-  const sitemapUrl = form.watch("sitemapUrl") || "https://example.com/sitemap.xml";
+  const ownerName = form.watch("ownerName") || "Unassigned";
+  const priority = form.watch("priority") || "medium";
+  const tags = form.watch("tags") || "campaign, seo";
+  const sitemapUrl =
+    form.watch("sitemapUrl") || "https://example.com/sitemap.xml";
   const alertEmail = form.watch("alertEmail") || "team@example.com";
   const enabledDestinations = [
     "email",
@@ -121,7 +129,15 @@ export default function AddWebsite() {
 
   async function goToNextStep() {
     if (currentStep === 1) {
-      const valid = await form.trigger(["name", "sitemapUrl", "alertEmail"]);
+      const valid = await form.trigger([
+        "name",
+        "ownerName",
+        "priority",
+        "tags",
+        "notes",
+        "sitemapUrl",
+        "alertEmail",
+      ]);
       if (!valid) return;
     }
 
@@ -173,6 +189,7 @@ export default function AddWebsite() {
           queryClient.invalidateQueries({
             queryKey: getGetDashboardSummaryQueryKey(),
           });
+          queryClient.invalidateQueries({ queryKey: ["dashboard-insights"] });
           setLocation(`/websites/${website.id}`);
         },
         onError: () => {
@@ -264,6 +281,58 @@ export default function AddWebsite() {
                     )}
                   />
 
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FormField
+                      control={form.control}
+                      name="ownerName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Property Owner</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="SEO team"
+                              {...field}
+                              data-testid="input-owner-name"
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Show who owns this property in the dashboard and reports.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="priority"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Priority</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger data-testid="select-priority">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="high">High</SelectItem>
+                              <SelectItem value="medium">Medium</SelectItem>
+                              <SelectItem value="low">Low</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            High-priority sites rise to the top of the dashboard.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
                   <FormField
                     control={form.control}
                     name="sitemapUrl"
@@ -291,6 +360,27 @@ export default function AddWebsite() {
 
                   <FormField
                     control={form.control}
+                    name="tags"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tags / Segments</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="campaign, blog, docs"
+                            {...field}
+                            data-testid="input-tags"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Comma-separated tags help SEO teams slice the dashboard.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
                     name="alertEmail"
                     render={({ field }) => (
                       <FormItem>
@@ -306,6 +396,27 @@ export default function AddWebsite() {
                         <FormDescription>
                           Email alerts are always on. This is the guaranteed fallback
                           channel for new issues.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="notes"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Notes</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Spring migration landing pages"
+                            {...field}
+                            data-testid="input-notes"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Lightweight context for launches, migrations, or campaign monitoring.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -711,6 +822,12 @@ export default function AddWebsite() {
                           Property
                         </p>
                         <p className="font-semibold">{propertyName}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Owner: {ownerName} • Priority: {priority}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Tags: {tags}
+                        </p>
                         <p className="text-sm text-muted-foreground break-all">
                           {sitemapUrl}
                         </p>

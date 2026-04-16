@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "404 Monitor"
+title = "SiteWatch"
 version = "1.0.0"
 id = "artifacts/monitor-app"
 router = "path"

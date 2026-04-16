@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Activity, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -48,7 +49,7 @@ export default function ForgotPassword() {
               <Activity className="h-10 w-10 text-primary" />
             </div>
             <h1 className="text-2xl font-mono font-bold tracking-tight text-foreground">
-              404_MONITOR
+              {PRODUCT_NAME}
             </h1>
           </div>
 
@@ -88,7 +89,7 @@ export default function ForgotPassword() {
             <Activity className="h-10 w-10 text-primary" />
           </div>
           <h1 className="text-2xl font-mono font-bold tracking-tight text-foreground">
-            404_MONITOR
+            {PRODUCT_NAME}
           </h1>
           <p className="text-sm text-muted-foreground mt-2 font-mono">
             Reset your password

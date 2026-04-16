@@ -13,6 +13,11 @@ import { parseSitemap } from "../utils/sitemapParser";
 import { checkWebsite } from "../utils/checker";
 import { z } from "zod";
 import { authenticate } from "../middleware/auth";
+import {
+  classifyIssueType,
+  deriveHistoryIssueTypes,
+  deriveStoredIssueType,
+} from "../utils/issue-status";
 
 const router: IRouter = Router();
 
@@ -20,6 +25,10 @@ router.use(authenticate);
 
 const addWebsiteSchema = z.object({
   name: z.string().min(1),
+  ownerName: z.string().optional(),
+  priority: z.enum(["low", "medium", "high"]).optional().default("medium"),
+  tags: z.string().optional(),
+  notes: z.string().optional(),
   sitemapUrl: z.string().url(),
   alertEmail: z.string().email(),
   checkIntervalMinutes: z
@@ -56,13 +65,26 @@ router.post("/websites", async (req, res) => {
     return;
   }
 
-  const { name, sitemapUrl, alertEmail, checkIntervalMinutes } = parsed.data;
+  const {
+    name,
+    ownerName,
+    priority,
+    tags,
+    notes,
+    sitemapUrl,
+    alertEmail,
+    checkIntervalMinutes,
+  } = parsed.data;
 
   try {
     const [website] = await db
       .insert(websitesTable)
       .values({
         name,
+        ownerName: ownerName?.trim() || null,
+        priority,
+        tags: tags?.trim() || null,
+        notes: notes?.trim() || null,
         sitemapUrl,
         alertEmail,
         checkIntervalMinutes,
@@ -148,6 +170,10 @@ router.delete("/websites/:id", async (req, res) => {
 
 const updateWebsiteSchema = z.object({
   name: z.string().min(1).optional(),
+  ownerName: z.string().optional().nullable(),
+  priority: z.enum(["low", "medium", "high"]).optional(),
+  tags: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
   sitemapUrl: z.string().url().optional(),
   alertEmail: z.string().email().optional(),
   checkIntervalMinutes: z.number().int().min(5).max(10080).optional(),
@@ -203,6 +229,13 @@ router.patch("/websites/:id/update", async (req, res) => {
 
     const updates: Partial<typeof existing> = {};
     if (parsed.data.name) updates.name = parsed.data.name;
+    if (parsed.data.ownerName !== undefined)
+      updates.ownerName = parsed.data.ownerName?.trim() || null;
+    if (parsed.data.priority !== undefined) updates.priority = parsed.data.priority;
+    if (parsed.data.tags !== undefined)
+      updates.tags = parsed.data.tags?.trim() || null;
+    if (parsed.data.notes !== undefined)
+      updates.notes = parsed.data.notes?.trim() || null;
     if (parsed.data.alertEmail) updates.alertEmail = parsed.data.alertEmail;
     if (parsed.data.checkIntervalMinutes !== undefined)
       updates.checkIntervalMinutes = parsed.data.checkIntervalMinutes;
@@ -230,6 +263,9 @@ router.patch("/websites/:id/update", async (req, res) => {
       updates.status = "pending";
       updates.totalUrls = 0;
       updates.brokenUrls = 0;
+      updates.notFoundUrls = 0;
+      updates.serverErrorUrls = 0;
+      updates.trackedIssueUrls = 0;
     }
 
     const [updated] = await db
@@ -516,10 +552,16 @@ router.get("/websites/:id/urls", async (req, res) => {
       .where(eq(monitoredUrlsTable.websiteId, id))
       .orderBy(monitoredUrlsTable.url);
 
-    if (statusFilter === "broken") {
-      urlRows = urlRows.filter((r) => r.isBroken);
+    if (statusFilter === "broken" || statusFilter === "not_found") {
+      urlRows = urlRows.filter(
+        (r) => deriveStoredIssueType(r) === "not_found",
+      );
+    } else if (statusFilter === "server_error") {
+      urlRows = urlRows.filter(
+        (r) => deriveStoredIssueType(r) === "server_error",
+      );
     } else if (statusFilter === "ok") {
-      urlRows = urlRows.filter((r) => !r.isBroken);
+      urlRows = urlRows.filter((r) => deriveStoredIssueType(r) === null);
     }
 
     res.json(urlRows.map(formatUrl));
@@ -628,18 +670,248 @@ router.get("/dashboard/summary", async (req, res) => {
           .where(eq(websitesTable.userId, req.user!.userId));
 
     const websites = await query;
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const websiteIds = websites.map((website) => website.id);
+    const recentHistory =
+      websiteIds.length > 0
+        ? await db
+            .select()
+            .from(urlStatusHistoryTable)
+            .where(gte(urlStatusHistoryTable.changedAt, since))
+            .orderBy(desc(urlStatusHistoryTable.changedAt))
+        : [];
+    const scopedHistory = recentHistory.filter((entry) =>
+      websiteIds.includes(entry.websiteId),
+    );
     const totalUrls = websites.reduce((sum, w) => sum + w.totalUrls, 0);
-    const totalBroken = websites.reduce((sum, w) => sum + w.brokenUrls, 0);
-    const websitesWithErrors = websites.filter((w) => w.brokenUrls > 0).length;
+    const totalBroken = websites.reduce(
+      (sum, w) => sum + (w.trackedIssueUrls ?? w.brokenUrls),
+      0,
+    );
+    const totalNotFound = websites.reduce(
+      (sum, w) => sum + (w.notFoundUrls ?? w.brokenUrls),
+      0,
+    );
+    const totalServerErrors = websites.reduce(
+      (sum, w) => sum + (w.serverErrorUrls ?? 0),
+      0,
+    );
+    const websitesWithErrors = websites.filter(
+      (w) => (w.trackedIssueUrls ?? w.brokenUrls) > 0,
+    ).length;
+    const totalRecoveredRecent = scopedHistory.filter((entry) => entry.becameFixed)
+      .length;
+    const sitesCheckedRecent = websites.filter((website) => {
+      if (!website.lastCheckedAt) return false;
+      return website.lastCheckedAt >= since;
+    }).length;
 
     res.json({
       totalWebsites: websites.length,
       totalUrls,
       totalBroken,
+      totalTrackedIssues: totalBroken,
+      totalNotFound,
+      totalServerErrors,
+      totalRecoveredRecent,
+      sitesCheckedRecent,
       websitesWithErrors,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to fetch dashboard summary");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/dashboard/insights", async (req, res) => {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  try {
+    const isAdmin = req.user?.role === "admin";
+    const websites = await (isAdmin
+      ? db.select().from(websitesTable)
+      : db
+          .select()
+          .from(websitesTable)
+          .where(eq(websitesTable.userId, req.user!.userId)));
+    const websiteIds = websites.map((website) => website.id);
+
+    if (websiteIds.length === 0) {
+      res.json({
+        recentActivity: [],
+        needsAttention: [],
+        websiteHealth: [],
+      });
+      return;
+    }
+
+    const users = await db.select().from(usersTable);
+    const userMap = new Map(users.map((user) => [user.id, user]));
+    const urlHistory = await db
+      .select()
+      .from(urlStatusHistoryTable)
+      .where(gte(urlStatusHistoryTable.changedAt, since))
+      .orderBy(desc(urlStatusHistoryTable.changedAt));
+
+    const scopedHistory = urlHistory.filter((entry) =>
+      websiteIds.includes(entry.websiteId),
+    );
+
+    const recentActivity = scopedHistory.slice(0, 40).map((entry) => {
+      const website = websites.find((site) => site.id === entry.websiteId);
+      const { previousIssueType, newIssueType } = deriveHistoryIssueTypes(entry);
+      const changeType = entry.becameFixed
+        ? "recovered"
+        : previousIssueType && newIssueType && previousIssueType !== newIssueType
+          ? "reclassified"
+          : newIssueType === "server_error"
+            ? "new_server_error"
+            : "new_not_found";
+
+      return {
+        websiteId: entry.websiteId,
+        websiteName: website?.name ?? "Unknown website",
+        url: entry.url,
+        changedAt: entry.changedAt?.toISOString(),
+        previousStatus: entry.previousStatus,
+        newStatus: entry.newStatus,
+        previousIssueType,
+        newIssueType,
+        changeType,
+      };
+    });
+
+    const recentCounts = new Map<
+      number,
+      { introduced: number; recovered: number; serverErrors: number }
+    >();
+    for (const entry of scopedHistory) {
+      const counts = recentCounts.get(entry.websiteId) ?? {
+        introduced: 0,
+        recovered: 0,
+        serverErrors: 0,
+      };
+      const { newIssueType } = deriveHistoryIssueTypes(entry);
+      if (entry.becameFixed) counts.recovered += 1;
+      if (newIssueType) counts.introduced += 1;
+      if (newIssueType === "server_error") counts.serverErrors += 1;
+      recentCounts.set(entry.websiteId, counts);
+    }
+
+    const websiteHealth = websites
+      .map((website) => {
+        const counts = recentCounts.get(website.id) ?? {
+          introduced: 0,
+          recovered: 0,
+          serverErrors: 0,
+        };
+        const owner =
+          website.ownerName?.trim() ||
+          userMap.get(website.userId)?.name ||
+          "Unassigned";
+
+        return {
+          websiteId: website.id,
+          websiteName: website.name,
+          ownerName: owner,
+          priority: website.priority ?? "medium",
+          tags: parseTags(website.tags),
+          alertDestinations: getAlertDestinations(website),
+          checkIntervalMinutes: website.checkIntervalMinutes,
+          totalUrls: website.totalUrls,
+          trackedIssueUrls: website.trackedIssueUrls ?? website.brokenUrls,
+          notFoundUrls: website.notFoundUrls ?? website.brokenUrls,
+          serverErrorUrls: website.serverErrorUrls ?? 0,
+          recentIntroducedCount: counts.introduced,
+          recentRecoveredCount: counts.recovered,
+          recentServerErrorCount: counts.serverErrors,
+          lastCheckedAt: website.lastCheckedAt?.toISOString() ?? null,
+          status: website.status,
+        };
+      })
+      .sort((a, b) => {
+        const severityA =
+          a.serverErrorUrls * 100 +
+          a.trackedIssueUrls * 10 +
+          a.recentIntroducedCount * 5;
+        const severityB =
+          b.serverErrorUrls * 100 +
+          b.trackedIssueUrls * 10 +
+          b.recentIntroducedCount * 5;
+        return severityB - severityA;
+      });
+
+    res.json({
+      recentActivity,
+      needsAttention: websiteHealth.filter(
+        (website) =>
+          website.trackedIssueUrls > 0 ||
+          website.recentIntroducedCount > 0 ||
+          website.recentServerErrorCount > 0,
+      ),
+      websiteHealth,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch dashboard insights");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/dashboard/export.csv", async (req, res) => {
+  try {
+    const isAdmin = req.user?.role === "admin";
+    const websites = await (isAdmin
+      ? db.select().from(websitesTable)
+      : db
+          .select()
+          .from(websitesTable)
+          .where(eq(websitesTable.userId, req.user!.userId)));
+    const users = await db.select().from(usersTable);
+    const userMap = new Map(users.map((user) => [user.id, user]));
+
+    const rows = [
+      [
+        "Website",
+        "Owner",
+        "Priority",
+        "Tags",
+        "Open Issues",
+        "Open 404",
+        "Open 5xx",
+        "Check Interval Minutes",
+        "Alert Destinations",
+        "Last Checked",
+      ],
+      ...websites.map((website) => [
+        website.name,
+        website.ownerName?.trim() || userMap.get(website.userId)?.name || "",
+        website.priority ?? "medium",
+        parseTags(website.tags).join("|"),
+        String(website.trackedIssueUrls ?? website.brokenUrls),
+        String(website.notFoundUrls ?? website.brokenUrls),
+        String(website.serverErrorUrls ?? 0),
+        String(website.checkIntervalMinutes),
+        getAlertDestinations(website).join("|"),
+        website.lastCheckedAt?.toISOString() ?? "",
+      ]),
+    ];
+
+    const csv = rows
+      .map((row) =>
+        row
+          .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+          .join(","),
+      )
+      .join("\n");
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="sitewatch-dashboard.csv"',
+    );
+    res.send(csv);
+  } catch (err) {
+    req.log.error({ err }, "Failed to export dashboard CSV");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -689,6 +961,9 @@ router.get("/websites/:id/history", async (req, res) => {
         checkedAt: h.checkedAt?.toISOString(),
         totalUrls: h.totalUrls,
         brokenUrls: h.brokenUrls,
+        trackedIssueUrls: h.trackedIssueUrls ?? h.brokenUrls,
+        notFoundUrls: h.notFoundUrls ?? h.brokenUrls,
+        serverErrorUrls: h.serverErrorUrls ?? 0,
       })),
     });
   } catch (err) {
@@ -739,8 +1014,14 @@ router.get("/websites/:id/summary-data", async (req, res) => {
       .from(monitoredUrlsTable)
       .where(eq(monitoredUrlsTable.websiteId, id));
 
-    const currentBroken = urls.filter((u) => u.isBroken);
-    const currentOk = urls.filter((u) => !u.isBroken);
+    const currentNotFound = urls.filter(
+      (u) => deriveStoredIssueType(u) === "not_found",
+    );
+    const currentServerErrors = urls.filter(
+      (u) => deriveStoredIssueType(u) === "server_error",
+    );
+    const currentTrackedIssues = [...currentNotFound, ...currentServerErrors];
+    const currentOk = urls.filter((u) => deriveStoredIssueType(u) === null);
 
     const uniqueUrls = (urls: string[]) => {
       const seen = new Set<string>();
@@ -759,7 +1040,8 @@ router.get("/websites/:id/summary-data", async (req, res) => {
       string,
       {
         date: string;
-        brokenSet: Set<string>;
+        notFoundSet: Set<string>;
+        serverErrorSet: Set<string>;
         fixedSet: Set<string>;
       }
     >();
@@ -769,7 +1051,8 @@ router.get("/websites/:id/summary-data", async (req, res) => {
       const dateStr = d.toISOString().split("T")[0];
       dayMap.set(dateStr, {
         date: dateStr,
-        brokenSet: new Set<string>(),
+        notFoundSet: new Set<string>(),
+        serverErrorSet: new Set<string>(),
         fixedSet: new Set<string>(),
       });
     }
@@ -778,10 +1061,13 @@ router.get("/websites/:id/summary-data", async (req, res) => {
       const dateStr = entry.changedAt.toISOString().split("T")[0];
       const day = dayMap.get(dateStr);
       if (day) {
+        const { newIssueType } = deriveHistoryIssueTypes(entry);
         if (entry.becameFixed) {
           day.fixedSet.add(entry.url);
-        } else if (entry.wasBroken) {
-          day.brokenSet.add(entry.url);
+        } else if (newIssueType === "not_found") {
+          day.notFoundSet.add(entry.url);
+        } else if (newIssueType === "server_error") {
+          day.serverErrorSet.add(entry.url);
         }
       }
     }
@@ -789,14 +1075,24 @@ router.get("/websites/:id/summary-data", async (req, res) => {
     const dayWiseBreakdown = Array.from(dayMap.values())
       .map((day) => ({
         date: day.date,
-        broke: day.brokenSet.size,
+        broke: day.notFoundSet.size + day.serverErrorSet.size,
+        notFound: day.notFoundSet.size,
+        serverError: day.serverErrorSet.size,
         fixed: day.fixedSet.size,
       }))
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    const recentlyBrokenUrls = uniqueUrls(
+    const recentlyNotFoundUrls = uniqueUrls(
       statusHistory
-        .filter((h) => h.wasBroken && !h.becameFixed)
+        .filter((h) => deriveHistoryIssueTypes(h).newIssueType === "not_found")
+        .map((h) => h.url),
+    ).slice(0, 20);
+
+    const recentlyServerErrorUrls = uniqueUrls(
+      statusHistory
+        .filter(
+          (h) => deriveHistoryIssueTypes(h).newIssueType === "server_error",
+        )
         .map((h) => h.url),
     ).slice(0, 20);
 
@@ -809,18 +1105,89 @@ router.get("/websites/:id/summary-data", async (req, res) => {
         ? `${website.customSummaryDays}days`
         : website.alertSummaryInterval || "7days";
 
+    const latestTransitionByUrl = new Map<
+      string,
+      (typeof statusHistory)[number]
+    >();
+    for (const entry of statusHistory) {
+      if (!latestTransitionByUrl.has(entry.url)) {
+        latestTransitionByUrl.set(entry.url, entry);
+      }
+    }
+    const openIssues = currentTrackedIssues
+      .map((url) => {
+        const transition = latestTransitionByUrl.get(url.url);
+        const currentIssueType = deriveStoredIssueType(url);
+        const enteredIssueAt =
+          transition &&
+          deriveHistoryIssueTypes(transition).newIssueType === currentIssueType
+            ? transition.changedAt
+            : url.lastCheckedAt;
+        return {
+          url: url.url,
+          issueType: currentIssueType,
+          currentStatus: url.lastStatus,
+          previousStatus: url.previousStatus,
+          lastCheckedAt: url.lastCheckedAt?.toISOString() ?? null,
+          enteredIssueAt: enteredIssueAt?.toISOString() ?? null,
+          ageHours: enteredIssueAt
+            ? Math.max(
+                1,
+                Math.round(
+                  (Date.now() - enteredIssueAt.getTime()) / (1000 * 60 * 60),
+                ),
+              )
+            : null,
+          errorMessage: url.errorMessage ?? null,
+        };
+      })
+      .sort((a, b) => (b.ageHours ?? 0) - (a.ageHours ?? 0));
+
+    const recentTransitions = statusHistory.slice(0, 25).map((entry) => {
+      const { previousIssueType, newIssueType } = deriveHistoryIssueTypes(entry);
+      return {
+        url: entry.url,
+        changedAt: entry.changedAt?.toISOString() ?? null,
+        previousStatus: entry.previousStatus,
+        newStatus: entry.newStatus,
+        previousIssueType,
+        newIssueType,
+        changeType: entry.becameFixed
+          ? "recovered"
+          : previousIssueType &&
+              newIssueType &&
+              previousIssueType !== newIssueType
+            ? "reclassified"
+            : newIssueType === "server_error"
+              ? "new_server_error"
+              : "new_not_found",
+      };
+    });
+
     res.json({
       websiteId: website.id,
       websiteName: website.name,
       interval,
       currentStatus: {
         totalUrls: urls.length,
-        brokenUrls: currentBroken.length,
+        brokenUrls: currentNotFound.length,
+        trackedIssueUrls: currentTrackedIssues.length,
+        notFoundUrls: currentNotFound.length,
+        serverErrorUrls: currentServerErrors.length,
         okUrls: currentOk.length,
       },
       dayWiseBreakdown,
-      recentlyBrokenUrls,
+      recentlyBrokenUrls: recentlyNotFoundUrls,
+      recentlyNotFoundUrls,
+      recentlyServerErrorUrls,
       recentlyFixedUrls,
+      openIssues,
+      recentIssues: {
+        notFoundUrls: recentlyNotFoundUrls,
+        serverErrorUrls: recentlyServerErrorUrls,
+      },
+      recoveredIssues: recentlyFixedUrls,
+      recentTransitions,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to fetch website summary data");
@@ -859,10 +1226,22 @@ router.get("/dashboard/trends", async (req, res) => {
       .where(gte(checkHistoryTable.checkedAt, since))
       .orderBy(checkHistoryTable.checkedAt);
 
-    const overallTrend: Record<string, number> = {};
+    const overallTrend: Record<
+      string,
+      { totalBroken: number; totalNotFound: number; totalServerErrors: number }
+    > = {};
     const websiteTrends: Record<
       number,
-      { name: string; history: Array<{ date: string; broken: number }> }
+      {
+        name: string;
+        history: Array<{
+          date: string;
+          broken: number;
+          trackedIssues: number;
+          notFound: number;
+          serverError: number;
+        }>;
+      }
     > = {};
 
     for (const w of websites) {
@@ -872,15 +1251,27 @@ router.get("/dashboard/trends", async (req, res) => {
     for (const h of history) {
       if (!websiteTrends[h.websiteId]) continue;
       const dateKey = h.checkedAt?.toISOString().split("T")[0] || "";
-      overallTrend[dateKey] = (overallTrend[dateKey] || 0) + h.brokenUrls;
+      if (!overallTrend[dateKey]) {
+        overallTrend[dateKey] = {
+          totalBroken: 0,
+          totalNotFound: 0,
+          totalServerErrors: 0,
+        };
+      }
+      overallTrend[dateKey].totalBroken += h.trackedIssueUrls ?? h.brokenUrls;
+      overallTrend[dateKey].totalNotFound += h.notFoundUrls ?? h.brokenUrls;
+      overallTrend[dateKey].totalServerErrors += h.serverErrorUrls ?? 0;
       websiteTrends[h.websiteId].history.push({
         date: dateKey,
-        broken: h.brokenUrls,
+        broken: h.trackedIssueUrls ?? h.brokenUrls,
+        trackedIssues: h.trackedIssueUrls ?? h.brokenUrls,
+        notFound: h.notFoundUrls ?? h.brokenUrls,
+        serverError: h.serverErrorUrls ?? 0,
       });
     }
 
     const overallTrendArray = Object.entries(overallTrend)
-      .map(([date, count]) => ({ date, totalBroken: count }))
+      .map(([date, counts]) => ({ date, ...counts }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
     const websitesArray = websiteIds.map((id) => ({
@@ -932,7 +1323,7 @@ async function parseSitemapAndStore(
 
     await db
       .update(websitesTable)
-      .set({ totalUrls: urls.length, status: "ok" })
+      .set({ totalUrls: urls.length, status: "ok", trackedIssueUrls: 0 })
       .where(eq(websitesTable.id, websiteId));
   } catch (err) {
     await db
@@ -950,6 +1341,13 @@ function formatWebsite(w: {
   alertEmail: string;
   totalUrls: number;
   brokenUrls: number;
+  notFoundUrls?: number;
+  serverErrorUrls?: number;
+  trackedIssueUrls?: number;
+  ownerName?: string | null;
+  priority?: string;
+  tags?: string | null;
+  notes?: string | null;
   checkIntervalMinutes: number;
   status: string;
   lastCheckedAt: Date | null;
@@ -973,6 +1371,14 @@ function formatWebsite(w: {
     alertEmail: w.alertEmail,
     totalUrls: w.totalUrls,
     brokenUrls: w.brokenUrls,
+    notFoundUrls: w.notFoundUrls ?? w.brokenUrls,
+    serverErrorUrls: w.serverErrorUrls ?? 0,
+    trackedIssueUrls:
+      w.trackedIssueUrls ?? (w.notFoundUrls ?? w.brokenUrls) + (w.serverErrorUrls ?? 0),
+    ownerName: w.ownerName ?? null,
+    priority: w.priority ?? "medium",
+    tags: parseTags(w.tags),
+    notes: w.notes ?? null,
     checkIntervalMinutes: w.checkIntervalMinutes,
     status: w.status,
     lastCheckedAt: w.lastCheckedAt?.toISOString() ?? null,
@@ -991,6 +1397,26 @@ function formatWebsite(w: {
   };
 }
 
+function parseTags(tags: string | null | undefined): string[] {
+  if (!tags) return [];
+  return tags
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function getAlertDestinations(website: {
+  alertEmail: string;
+  slackAlertEnabled?: boolean;
+  teamsAlertEnabled?: boolean;
+}): string[] {
+  return [
+    website.alertEmail ? "email" : null,
+    website.slackAlertEnabled ? "Slack" : null,
+    website.teamsAlertEnabled ? "Teams" : null,
+  ].filter(Boolean) as string[];
+}
+
 function formatUrl(u: {
   id: number;
   websiteId: number;
@@ -998,9 +1424,12 @@ function formatUrl(u: {
   lastStatus: number | null;
   previousStatus: number | null;
   isBroken: boolean;
+  issueType?: string | null;
+  isTrackedIssue?: boolean;
   lastCheckedAt: Date | null;
   errorMessage: string | null;
 }) {
+  const issueType = deriveStoredIssueType(u);
   return {
     id: u.id,
     websiteId: u.websiteId,
@@ -1008,6 +1437,8 @@ function formatUrl(u: {
     lastStatus: u.lastStatus,
     previousStatus: u.previousStatus,
     isBroken: u.isBroken,
+    issueType,
+    isTrackedIssue: issueType !== null,
     lastCheckedAt: u.lastCheckedAt?.toISOString() ?? null,
     errorMessage: u.errorMessage,
   };

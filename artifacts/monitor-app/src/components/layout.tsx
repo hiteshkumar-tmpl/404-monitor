@@ -8,6 +8,7 @@ import {
   LogOut,
   Users,
 } from "lucide-react";
+import { PRODUCT_NAME } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="h-16 flex items-center px-6 border-b border-border">
           <Activity className="h-6 w-6 text-primary mr-3" />
           <span className="font-mono font-bold tracking-tight text-lg text-foreground">
-            404_MONITOR
+            {PRODUCT_NAME}
           </span>
         </div>
         <div className="flex-1 overflow-y-auto py-4">
@@ -113,9 +114,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </Button>
         </div>
       </div>
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        <main className="flex-1 overflow-y-auto bg-background p-8">
-          <div className="mx-auto max-w-6xl">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col h-screen overflow-hidden">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-background">
+          <div className="mx-auto max-w-6xl min-w-0 p-8">{children}</div>
         </main>
       </div>
     </div>

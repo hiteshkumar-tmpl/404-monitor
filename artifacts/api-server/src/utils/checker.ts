@@ -14,16 +14,27 @@ import {
   getUrlCheckerConfig,
   runInBatches,
 } from "./urlChecker";
-import { send404Alert, sendCheckSummaryEmail } from "./emailer";
+import { sendCheckSummaryEmail, sendIssueAlert } from "./emailer";
 import { sendSlackAlert, type SlackAlertPayload } from "./slack-notifier";
 import { sendTeamsAlert, type TeamsAlertPayload } from "./teams-notifier";
 import { logger } from "../lib/logger";
+import {
+  classifyIssueType,
+  deriveHistoryIssueTypes,
+  deriveStoredIssueType,
+  type IssueAlertEntry,
+  type TrackedIssueType,
+} from "./issue-status";
 
 export interface CheckWebsiteResult {
   websiteId: number;
   checkedUrls: number;
   brokenUrls: number;
+  serverErrorUrls: number;
+  trackedIssueUrls: number;
   newBrokenUrls: number;
+  newServerErrorUrls: number;
+  newIssueUrls: number;
   message: string;
 }
 
@@ -43,8 +54,8 @@ const DEFAULT_DASHBOARD_BASE_URL = "http://136.113.130.29:5173";
 /**
  * Run a full check for a single website:
  * 1. Fetch + re-parse sitemap to discover any new URLs
- * 2. Check all stored URLs for 404s
- * 3. Detect newly broken URLs (was 200, now 404)
+ * 2. Check all stored URLs for tracked issues
+ * 3. Detect newly tracked issues (404 + 5xx)
  * 4. Send email alert if needed
  */
 export async function checkWebsite(
@@ -135,7 +146,11 @@ export async function checkWebsite(
         websiteId,
         checkedUrls: 0,
         brokenUrls: 0,
+        serverErrorUrls: 0,
+        trackedIssueUrls: 0,
         newBrokenUrls: 0,
+        newServerErrorUrls: 0,
+        newIssueUrls: 0,
         message: "No URLs to check",
       };
     }
@@ -156,8 +171,10 @@ export async function checkWebsite(
     );
     const checkResults = await checkUrlsBatch(urlStrings, concurrency);
 
-    // Step 4: Update URL statuses and detect new breakages/fixes
-    const newBrokenUrls: string[] = [];
+    // Step 4: Update URL statuses and detect new issue / recovery transitions.
+    const newIssueEntries: IssueAlertEntry[] = [];
+    const newNotFoundEntries: IssueAlertEntry[] = [];
+    const newServerErrorEntries: IssueAlertEntry[] = [];
     const newFixedUrls: string[] = [];
 
     const urlRowByUrl = new Map(urlRows.map((r) => [r.url, r] as const));
@@ -167,26 +184,36 @@ export async function checkWebsite(
       const existing = urlRowByUrl.get(result.url);
       if (!existing) return;
 
-      const isNowBroken = result.statusCode === 404;
-      const wasOk =
-        !existing.isBroken &&
-        (existing.lastStatus === 200 || existing.lastStatus === null);
-
-      const wasBroken = existing.isBroken && existing.lastStatus === 404;
-      const isNowOk = result.statusCode === 200;
+      const previousIssueType = deriveStoredIssueType(existing);
+      const nextIssueType = classifyIssueType(result.statusCode);
       const now = new Date();
 
-      // Detect transition: was ok (or unchecked) → now 404
-      if (isNowBroken && wasOk) {
+      if (nextIssueType !== previousIssueType && nextIssueType) {
+        const issueEntry: IssueAlertEntry = {
+          url: result.url,
+          statusCode: result.statusCode ?? 0,
+          issueType: nextIssueType,
+        };
+
+        newIssueEntries.push(issueEntry);
+        if (nextIssueType === "not_found") {
+          newNotFoundEntries.push(issueEntry);
+        } else {
+          newServerErrorEntries.push(issueEntry);
+        }
+
         logger.info(
-          { url: result.url, wasOk, existingIsBroken: existing.isBroken },
-          "NEW broken URL detected",
+          {
+            url: result.url,
+            previousIssueType,
+            nextIssueType,
+            statusCode: result.statusCode,
+          },
+          "NEW tracked issue detected",
         );
-        newBrokenUrls.push(result.url);
       }
 
-      // Detect transition: was broken → now fixed
-      if (isNowOk && wasBroken) {
+      if (previousIssueType && nextIssueType === null) {
         newFixedUrls.push(result.url);
       }
 
@@ -195,45 +222,51 @@ export async function checkWebsite(
         .set({
           previousStatus: existing.lastStatus,
           lastStatus: result.statusCode,
-          isBroken: isNowBroken,
+          isBroken: nextIssueType === "not_found",
+          issueType: nextIssueType,
+          isTrackedIssue: nextIssueType !== null,
           lastCheckedAt: now,
           errorMessage: result.errorMessage,
         })
         .where(eq(monitoredUrlsTable.id, existing.id));
 
-      if (isNowBroken && wasOk) {
+      if (nextIssueType !== previousIssueType) {
         await db.insert(urlStatusHistoryTable).values({
           websiteId,
           url: result.url,
           previousStatus: existing.lastStatus,
           newStatus: result.statusCode,
-          wasBroken: true,
-          becameFixed: false,
-          changedAt: now,
-        });
-      }
-
-      if (isNowOk && wasBroken) {
-        await db.insert(urlStatusHistoryTable).values({
-          websiteId,
-          url: result.url,
-          previousStatus: existing.lastStatus,
-          newStatus: result.statusCode,
-          wasBroken: false,
-          becameFixed: true,
+          previousIssueType,
+          newIssueType: nextIssueType,
+          wasBroken: nextIssueType === "not_found",
+          becameFixed: previousIssueType !== null && nextIssueType === null,
           changedAt: now,
         });
       }
     });
 
     // Step 5: Update website summary
-    const brokenCount = checkResults.filter((r) => r.statusCode === 404).length;
+    const notFoundResults = checkResults.filter(
+      (r) => classifyIssueType(r.statusCode) === "not_found",
+    );
+    const serverErrorResults = checkResults.filter(
+      (r) => classifyIssueType(r.statusCode) === "server_error",
+    );
+    const brokenCount = notFoundResults.length;
+    const serverErrorCount = serverErrorResults.length;
+    const trackedIssueCount = brokenCount + serverErrorCount;
+    const currentNotFoundUrls = notFoundResults.map((r) => r.url);
+    const currentServerErrorUrls = serverErrorResults.map((r) => r.url);
+
     await db
       .update(websitesTable)
       .set({
         totalUrls: urlRows.length,
         brokenUrls: brokenCount,
-        status: brokenCount > 0 ? "error" : "ok",
+        notFoundUrls: brokenCount,
+        serverErrorUrls: serverErrorCount,
+        trackedIssueUrls: trackedIssueCount,
+        status: trackedIssueCount > 0 ? "error" : "ok",
         lastCheckedAt: new Date(),
       })
       .where(eq(websitesTable.id, websiteId));
@@ -242,7 +275,10 @@ export async function checkWebsite(
     await db.insert(checkHistoryTable).values({
       websiteId,
       totalUrls: urlRows.length,
-      brokenUrls: brokenCount,
+      brokenUrls: trackedIssueCount,
+      notFoundUrls: brokenCount,
+      serverErrorUrls: serverErrorCount,
+      trackedIssueUrls: trackedIssueCount,
     });
 
     // Step 6: Send alerts based on website settings
@@ -260,7 +296,9 @@ export async function checkWebsite(
     const slackPayload: SlackAlertPayload = {
       websiteId: website.id,
       websiteName: website.name,
-      brokenUrls: newBrokenUrls,
+      issues: newIssueEntries,
+      notFoundUrls: newNotFoundEntries.map((entry) => entry.url),
+      serverErrorUrls: newServerErrorEntries.map((entry) => entry.url),
       fixedUrls: newFixedUrls,
       totalUrls: urlRows.length,
       checkedUrls: checkResults.length,
@@ -270,14 +308,16 @@ export async function checkWebsite(
     const teamsPayload: TeamsAlertPayload = {
       websiteId: website.id,
       websiteName: website.name,
-      brokenUrls: newBrokenUrls,
+      issues: newIssueEntries,
+      notFoundUrls: newNotFoundEntries.map((entry) => entry.url),
+      serverErrorUrls: newServerErrorEntries.map((entry) => entry.url),
       fixedUrls: newFixedUrls,
       totalUrls: urlRows.length,
       checkedUrls: checkResults.length,
       dashboardUrl,
     };
 
-    const hasChanges = newBrokenUrls.length > 0 || newFixedUrls.length > 0;
+    const hasChanges = newIssueEntries.length > 0 || newFixedUrls.length > 0;
 
     const getIntervalDays = (interval: AlertSummaryInterval): number => {
       switch (interval) {
@@ -315,13 +355,14 @@ export async function checkWebsite(
     logger.info(
       {
         websiteId: website.id,
-        shouldSendEmail: newBrokenUrls.length > 0,
+        shouldSendEmail: newIssueEntries.length > 0,
         shouldSendSlack: shouldSendSlackAlert,
         shouldSendTeams: shouldSendTeamsAlert,
         summaryInterval,
         intervalDays,
         hasChanges,
-        newBrokenUrls: newBrokenUrls.length,
+        newNotFoundUrls: newNotFoundEntries.length,
+        newServerErrorUrls: newServerErrorEntries.length,
         newFixedUrls: newFixedUrls.length,
         slackRealtimeEnabled,
         teamsRealtimeEnabled,
@@ -331,38 +372,43 @@ export async function checkWebsite(
       "Alert decision check",
     );
 
-    // Send email alert for newly broken URLs (existing behavior)
+    // Send email alert for newly detected tracked issues.
     let emailAlertSent = false;
-    if (newBrokenUrls.length > 0) {
+    if (newIssueEntries.length > 0) {
       logger.info(
         {
           to: website.alertEmail,
-          count: newBrokenUrls.length,
-          brokenUrls: newBrokenUrls,
+          count: newIssueEntries.length,
+          issues: newIssueEntries,
         },
         "Sending email alert",
       );
-      emailAlertSent = await send404Alert({
+      emailAlertSent = await sendIssueAlert({
         to: website.alertEmail,
         websiteName: website.name,
-        brokenUrls: newBrokenUrls,
+        issues: newIssueEntries,
       });
     }
 
     // Build summary payload once and use it for summary email / Teams summary.
     const summaryPayload = {
-      brokenUrls: newBrokenUrls,
+      issues: newIssueEntries,
+      notFoundUrls: currentNotFoundUrls,
+      serverErrorUrls: currentServerErrorUrls,
       fixedUrls: newFixedUrls,
       totalUrls: urlRows.length,
       checkedUrls: checkResults.length,
       currentStatus: {
         totalUrls: urlRows.length,
-        brokenUrls: brokenCount,
-        okUrls: urlRows.length - brokenCount,
+        trackedIssueUrls: trackedIssueCount,
+        notFoundUrls: brokenCount,
+        serverErrorUrls: serverErrorCount,
+        okUrls: urlRows.length - trackedIssueCount,
       },
       dayWiseBreakdown: [] as Array<{
         date: string;
-        broke: number;
+        notFound: number;
+        serverError: number;
         fixed: number;
       }>,
     };
@@ -371,18 +417,23 @@ export async function checkWebsite(
     const buildSummaryPayload = async (
       interval: AlertSummaryInterval,
     ): Promise<{
-      brokenUrls: string[];
+      issues: IssueAlertEntry[];
+      notFoundUrls: string[];
+      serverErrorUrls: string[];
       fixedUrls: string[];
       totalUrls: number;
       checkedUrls: number;
       currentStatus: {
         totalUrls: number;
-        brokenUrls: number;
+        trackedIssueUrls: number;
+        notFoundUrls: number;
+        serverErrorUrls: number;
         okUrls: number;
       };
       dayWiseBreakdown: Array<{
         date: string;
-        broke: number;
+        notFound: number;
+        serverError: number;
         fixed: number;
       }>;
     }> => {
@@ -396,29 +447,48 @@ export async function checkWebsite(
 
       const recentHistory = history.filter((h) => h.changedAt >= since);
 
-      const uniqueBrokenUrls = new Set<string>();
+      const uniqueNotFoundUrls = new Set<string>();
+      const uniqueServerErrorUrls = new Set<string>();
       const uniqueFixedUrls = new Set<string>();
       for (const entry of recentHistory) {
-        if (entry.wasBroken && !entry.becameFixed) {
-          uniqueBrokenUrls.add(entry.url);
+        const { newIssueType } = deriveHistoryIssueTypes(entry);
+        if (newIssueType === "not_found") {
+          uniqueNotFoundUrls.add(entry.url);
+        }
+        if (newIssueType === "server_error") {
+          uniqueServerErrorUrls.add(entry.url);
         }
         if (entry.becameFixed) {
           uniqueFixedUrls.add(entry.url);
         }
       }
-      const brokenUrls = Array.from(uniqueBrokenUrls);
+      const notFoundUrls = Array.from(uniqueNotFoundUrls);
+      const serverErrorUrls = Array.from(uniqueServerErrorUrls);
       const fixedUrls = Array.from(uniqueFixedUrls);
+      const issues: IssueAlertEntry[] = [
+        ...notFoundUrls.map((url) => ({
+          url,
+          statusCode: 404,
+          issueType: "not_found" as TrackedIssueType,
+        })),
+        ...serverErrorUrls.map((url) => ({
+          url,
+          statusCode: 500,
+          issueType: "server_error" as TrackedIssueType,
+        })),
+      ];
 
-      const currentBroken = urlRows.filter((u) => u.isBroken).length;
-      const currentOk = urlRows.length - currentBroken;
+      const currentNotFound = currentNotFoundUrls.length;
+      const currentServerError = currentServerErrorUrls.length;
+      const currentTrackedIssueCount = currentNotFound + currentServerError;
+      const currentOk = urlRows.length - currentTrackedIssueCount;
 
       const dayMap = new Map<
         string,
         {
           date: string;
-          broke: number;
-          fixed: number;
-          brokenSet: Set<string>;
+          notFoundSet: Set<string>;
+          serverErrorSet: Set<string>;
           fixedSet: Set<string>;
         }
       >();
@@ -427,9 +497,8 @@ export async function checkWebsite(
         const dateStr = d.toISOString().split("T")[0];
         dayMap.set(dateStr, {
           date: dateStr,
-          broke: 0,
-          fixed: 0,
-          brokenSet: new Set<string>(),
+          notFoundSet: new Set<string>(),
+          serverErrorSet: new Set<string>(),
           fixedSet: new Set<string>(),
         });
       }
@@ -438,10 +507,13 @@ export async function checkWebsite(
         const dateStr = entry.changedAt.toISOString().split("T")[0];
         const day = dayMap.get(dateStr);
         if (day) {
+          const { newIssueType } = deriveHistoryIssueTypes(entry);
           if (entry.becameFixed) {
             day.fixedSet.add(entry.url);
-          } else if (entry.wasBroken) {
-            day.brokenSet.add(entry.url);
+          } else if (newIssueType === "not_found") {
+            day.notFoundSet.add(entry.url);
+          } else if (newIssueType === "server_error") {
+            day.serverErrorSet.add(entry.url);
           }
         }
       }
@@ -449,21 +521,24 @@ export async function checkWebsite(
       const dayWiseBreakdown = Array.from(dayMap.values())
         .map((day) => ({
           date: day.date,
-          broke: day.brokenSet.size,
+          notFound: day.notFoundSet.size,
+          serverError: day.serverErrorSet.size,
           fixed: day.fixedSet.size,
         }))
-        .sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-      );
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       return {
-        brokenUrls,
+        issues,
+        notFoundUrls,
+        serverErrorUrls,
         fixedUrls,
         totalUrls: urlRows.length,
         checkedUrls: checkResults.length,
         currentStatus: {
           totalUrls: urlRows.length,
-          brokenUrls: currentBroken,
+          trackedIssueUrls: currentTrackedIssueCount,
+          notFoundUrls: currentNotFound,
+          serverErrorUrls: currentServerError,
           okUrls: currentOk,
         },
         dayWiseBreakdown,
@@ -476,7 +551,8 @@ export async function checkWebsite(
       websiteName: website.name,
       totalUrls: summaryPayload.totalUrls,
       checkedUrls: summaryPayload.checkedUrls,
-      brokenUrls: brokenCount > 0 ? urlRows.filter((u) => u.isBroken).map((u) => u.url) : [],
+      notFoundUrls: currentNotFoundUrls,
+      serverErrorUrls: currentServerErrorUrls,
       fixedUrls: newFixedUrls,
       dashboardUrl,
     });
@@ -505,7 +581,9 @@ export async function checkWebsite(
           website.slackWebhookUrl!,
           {
             ...slackPayload,
-            brokenUrls: summaryData.brokenUrls,
+            issues: summaryData.issues,
+            notFoundUrls: summaryData.notFoundUrls,
+            serverErrorUrls: summaryData.serverErrorUrls,
             fixedUrls: summaryData.fixedUrls,
             currentStatus: summaryData.currentStatus,
             dayWiseBreakdown: summaryData.dayWiseBreakdown,
@@ -524,14 +602,23 @@ export async function checkWebsite(
           { webhookUrl: website.slackWebhookUrl, summaryInterval },
           "Sending Slack realtime summary",
         );
-        await sendSlackAlert(website.slackWebhookUrl!, slackPayload, "summary");
+        await sendSlackAlert(
+          website.slackWebhookUrl!,
+          {
+            ...slackPayload,
+            notFoundUrls: currentNotFoundUrls,
+            serverErrorUrls: currentServerErrorUrls,
+            currentStatus: summaryPayload.currentStatus,
+          },
+          "summary",
+        );
       } else if (hasChanges && slackRealtimeEnabled) {
         // Non-realtime, has changes, and realtime alerts enabled - send broken/fixed
         logger.info(
           { webhookUrl: website.slackWebhookUrl, summaryInterval },
           "Sending Slack broken/fixed alert",
         );
-        if (newBrokenUrls.length > 0) {
+        if (newIssueEntries.length > 0) {
           await sendSlackAlert(
             website.slackWebhookUrl!,
             slackPayload,
@@ -556,10 +643,9 @@ export async function checkWebsite(
         website.teamsWebhookUrl!,
         {
           ...teamsPayload,
-          brokenUrls:
-            brokenCount > 0
-              ? urlRows.filter((u) => u.isBroken).map((u) => u.url)
-              : [],
+          issues: realtimeSummaryData.issues,
+          notFoundUrls: currentNotFoundUrls,
+          serverErrorUrls: currentServerErrorUrls,
           fixedUrls: realtimeSummaryData.fixedUrls,
           currentStatus: realtimeSummaryData.currentStatus,
           dayWiseBreakdown: realtimeSummaryData.dayWiseBreakdown,
@@ -590,7 +676,9 @@ export async function checkWebsite(
           website.teamsWebhookUrl!,
           {
             ...teamsPayload,
-            brokenUrls: summaryData.brokenUrls,
+            issues: summaryData.issues,
+            notFoundUrls: summaryData.notFoundUrls,
+            serverErrorUrls: summaryData.serverErrorUrls,
             fixedUrls: summaryData.fixedUrls,
             currentStatus: summaryData.currentStatus,
             dayWiseBreakdown: summaryData.dayWiseBreakdown,
@@ -607,13 +695,22 @@ export async function checkWebsite(
           { webhookUrl: website.teamsWebhookUrl, summaryInterval },
           "Sending Teams realtime summary",
         );
-        await sendTeamsAlert(website.teamsWebhookUrl!, teamsPayload, "summary");
+        await sendTeamsAlert(
+          website.teamsWebhookUrl!,
+          {
+            ...teamsPayload,
+            notFoundUrls: currentNotFoundUrls,
+            serverErrorUrls: currentServerErrorUrls,
+            currentStatus: summaryPayload.currentStatus,
+          },
+          "summary",
+        );
       } else if (hasChanges && teamsRealtimeEnabled) {
         logger.info(
           { webhookUrl: website.teamsWebhookUrl, summaryInterval },
           "Sending Teams broken/fixed alert",
         );
-        if (newBrokenUrls.length > 0) {
+        if (newIssueEntries.length > 0) {
           await sendTeamsAlert(
             website.teamsWebhookUrl!,
             teamsPayload,
@@ -630,7 +727,10 @@ export async function checkWebsite(
         websiteId,
         checkedUrls: urlRows.length,
         brokenCount,
-        newBroken: newBrokenUrls.length,
+        serverErrorCount,
+        trackedIssueCount,
+        newBroken: newNotFoundEntries.length,
+        newServerErrors: newServerErrorEntries.length,
         emailAlertSent,
         summaryEmailSent,
       },
@@ -641,12 +741,16 @@ export async function checkWebsite(
       websiteId,
       checkedUrls: urlRows.length,
       brokenUrls: brokenCount,
-      newBrokenUrls: newBrokenUrls.length,
+      serverErrorUrls: serverErrorCount,
+      trackedIssueUrls: trackedIssueCount,
+      newBrokenUrls: newNotFoundEntries.length,
+      newServerErrorUrls: newServerErrorEntries.length,
+      newIssueUrls: newIssueEntries.length,
       message:
-        newBrokenUrls.length > 0
+        newIssueEntries.length > 0
           ? emailAlertSent
-            ? `Found ${newBrokenUrls.length} new broken URL(s), email alert sent`
-            : `Found ${newBrokenUrls.length} new broken URL(s), but email delivery failed`
+            ? `Found ${newIssueEntries.length} new issue URL(s), email alert sent`
+            : `Found ${newIssueEntries.length} new issue URL(s), but email delivery failed`
           : summaryEmailSent
             ? "Check complete, no new issues, summary email sent"
             : "Check complete, no new issues, but summary email delivery failed",

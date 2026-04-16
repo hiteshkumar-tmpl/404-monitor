@@ -1,13 +1,13 @@
 import { logger } from "../lib/logger";
+import {
+  getIssueTypeLabel,
+  type IssueAlertEntry,
+} from "./issue-status";
 
 /** Classic Microsoft Teams Incoming Webhook (connector). */
 const TEAMS_INCOMING_WEBHOOK_REGEX =
   /^https:\/\/[\w.-]+\.webhook\.office\.com\/webhook\/[^/]+\/IncomingWebhook\/[^/]+$/i;
 
-/**
- * Power Platform workflow invoke URLs (incl. Teams Workflows "webhook" links).
- * Teams expects an Office 365 **MessageCard** or Adaptive Card body here — not arbitrary JSON.
- */
 function isPowerAutomateOrLogicAppsWebhookUrl(url: string): boolean {
   try {
     const u = new URL(url);
@@ -37,24 +37,29 @@ export function isTeamsWebhookUrl(url: string): boolean {
 export interface TeamsAlertPayload {
   websiteId: number;
   websiteName: string;
-  brokenUrls: string[];
+  issues: IssueAlertEntry[];
+  notFoundUrls: string[];
+  serverErrorUrls: string[];
   fixedUrls: string[];
   totalUrls: number;
   checkedUrls: number;
   dashboardUrl?: string;
   currentStatus?: {
     totalUrls: number;
-    brokenUrls: number;
+    trackedIssueUrls: number;
+    notFoundUrls: number;
+    serverErrorUrls: number;
     okUrls: number;
   };
   dayWiseBreakdown?: Array<{
     date: string;
-    broke: number;
+    broke?: number;
+    notFound: number;
+    serverError: number;
     fixed: number;
   }>;
 }
 
-/** Adaptive Card elements allow many type-specific fields (TextBlock, FactSet, Container, …). */
 type TeamsCardElement = Record<string, unknown> & { type: string };
 
 interface TeamsCard {
@@ -70,530 +75,205 @@ interface TeamsCardAction {
   url?: string;
 }
 
-function buildBrokenMessage(payload: TeamsAlertPayload): TeamsCard {
-  const { websiteName, brokenUrls, checkedUrls, dashboardUrl } = payload;
-
-  return {
-    type: "AdaptiveCard",
-    version: "1.0",
-    body: [
-      {
-        type: "Container",
-        items: [
-          {
-            type: "TextBlock",
-            text: `🚨 404 Alert: ${websiteName}`,
-            weight: "bolder",
-            size: "large",
-            color: "attention",
-          },
-        ],
-      },
-      {
-        type: "Container",
-        items: [
-          {
-            type: "TextBlock",
-            text: "New broken URLs detected",
-            weight: "bolder",
-          },
-        ],
-      },
-      ...(brokenUrls.length > 0
-        ? [
-            {
-              type: "Container",
-              items: [
-                {
-                  type: "FactSet",
-                  facts: brokenUrls.slice(0, 10).map((url) => ({
-                    title: "Broken URL",
-                    value: url,
-                  })),
-                },
-              ],
-            },
-          ]
-        : [
-            {
-              type: "Container",
-              items: [
-                {
-                  type: "TextBlock",
-                  text: "No new broken links.",
-                },
-              ],
-            },
-          ]),
-      {
-        type: "Container",
-        items: [
-          {
-            type: "TextBlock",
-            text: `Checked ${checkedUrls} URLs | Found ${brokenUrls.length} broken`,
-            size: "small",
-            color: "accent",
-          },
-        ],
-      },
-    ],
-    actions: dashboardUrl
-      ? [
-          {
-            type: "Action.OpenUrl",
-            title: "View Dashboard",
-            url: dashboardUrl,
-          },
-        ]
-      : [],
-  };
+function buildFactSet(
+  payload: TeamsAlertPayload,
+): Array<{ title: string; value: string }> {
+  return [
+    { title: "Total URLs", value: String(payload.totalUrls) },
+    { title: "Checked", value: String(payload.checkedUrls) },
+    {
+      title: "Tracked Issues",
+      value: String(payload.notFoundUrls.length + payload.serverErrorUrls.length),
+    },
+    { title: "404 URLs", value: String(payload.notFoundUrls.length) },
+    { title: "5xx URLs", value: String(payload.serverErrorUrls.length) },
+    { title: "Recovered", value: String(payload.fixedUrls.length) },
+  ];
 }
 
-function buildFixedMessage(payload: TeamsAlertPayload): TeamsCard {
-  const { websiteName, fixedUrls, dashboardUrl } = payload;
-
-  return {
-    type: "Message",
-    version: "1.0",
-    body: [
-      {
-        type: "Container",
-        items: [
-          {
-            type: "TextBlock",
-            text: `✅ Recovery Alert: ${websiteName}`,
-            weight: "bolder",
-            size: "large",
-            color: "good",
-          },
-        ],
-      },
-      {
-        type: "Container",
-        items: [
-          {
-            type: "TextBlock",
-            text: "URLs are now working again",
-            weight: "bolder",
-          },
-        ],
-      },
-      ...(fixedUrls.length > 0
-        ? [
-            {
-              type: "Container",
-              items: [
-                {
-                  type: "FactSet",
-                  facts: fixedUrls.slice(0, 10).map((url) => ({
-                    title: "Fixed URL",
-                    value: url,
-                  })),
-                },
-              ],
-            },
-          ]
-        : [
-            {
-              type: "Container",
-              items: [
-                {
-                  type: "TextBlock",
-                  text: "No URLs recovered.",
-                },
-              ],
-            },
-          ]),
-    ],
-    actions: dashboardUrl
-      ? [
-          {
-            type: "Action.OpenUrl",
-            title: "View Dashboard",
-            url: dashboardUrl,
-          },
-        ]
-      : [],
-  };
+function buildIssueFacts(issues: IssueAlertEntry[]) {
+  return issues.slice(0, 10).map((issue) => ({
+    title: `${issue.statusCode}`,
+    value: `${issue.url} (${getIssueTypeLabel(issue.issueType)})`,
+  }));
 }
 
-/**
- * Root **Adaptive Card** JSON for Teams Workflows + "Post card in a chat or channel".
- * That action deserializes with AdaptiveCard.FromJson and requires `type: "AdaptiveCard"`.
- * @see https://adaptivecards.io/explorer/AdaptiveCard.html
- */
-function buildTeamsWorkflowAdaptiveCard(
+function buildMessageCard(
   payload: TeamsAlertPayload,
   alertType: "broken" | "fixed" | "summary",
-): Record<string, unknown> {
-  const {
-    websiteName,
-    brokenUrls,
-    fixedUrls,
-    totalUrls,
-    checkedUrls,
-    dashboardUrl,
-  } = payload;
+): TeamsCard {
+  const title =
+    alertType === "broken"
+      ? `🚨 Issue Alert: ${payload.websiteName}`
+      : alertType === "fixed"
+        ? `✅ Recovery Alert: ${payload.websiteName}`
+        : `📊 Check Summary: ${payload.websiteName}`;
 
-  let headerColor = "attention";
-  let headerText = "404 Monitor - Broken URLs Detected";
-  if (alertType === "fixed") {
-    headerColor = "good";
-    headerText = "404 Monitor - URLs Recovered";
-  } else if (alertType === "summary") {
-    headerColor = "accent";
-    headerText = "404 Monitor - Check Summary";
-  }
-
-  const body: Record<string, unknown>[] = [
+  const body: TeamsCardElement[] = [
     {
       type: "Container",
-      style: headerColor,
-      items: [
-        {
-          type: "TextBlock",
-          text: headerText,
-          weight: "bolder",
-          size: "large",
-          color: headerColor,
-          wrap: true,
-        },
-      ],
-    },
-    {
-      type: "TextBlock",
-      text: websiteName,
-      weight: "bolder",
-      size: "medium",
-      wrap: true,
+      items: [{ type: "TextBlock", text: title, weight: "bolder", size: "large" }],
     },
   ];
 
-  if (alertType === "broken" || alertType === "fixed") {
-    const urls = alertType === "broken" ? brokenUrls : fixedUrls;
+  if (alertType === "broken") {
     body.push({
-      type: "TextBlock",
-      text: `${checkedUrls} URL(s) checked. ${urls.length} ${alertType === "broken" ? "broken" : "recovered"}.`,
-      wrap: true,
-      isSubtle: true,
-      spacing: "small",
+      type: "Container",
+      items: [
+        {
+          type: "TextBlock",
+          text: `New tracked issues detected: ${payload.notFoundUrls.length} 404 URL(s), ${payload.serverErrorUrls.length} 5xx URL(s)`,
+          weight: "bolder",
+        },
+      ],
+    });
+    if (payload.issues.length > 0) {
+      body.push({
+        type: "Container",
+        items: [{ type: "FactSet", facts: buildIssueFacts(payload.issues) }],
+      });
+    }
+  } else if (alertType === "fixed") {
+    body.push({
+      type: "Container",
+      items: [
+        {
+          type: "TextBlock",
+          text: "URLs are now working again",
+          weight: "bolder",
+        },
+        {
+          type: "FactSet",
+          facts: payload.fixedUrls.slice(0, 10).map((url) => ({
+            title: "Recovered",
+            value: url,
+          })),
+        },
+      ],
+    });
+  } else {
+    body.push({
+      type: "Container",
+      items: [{ type: "FactSet", facts: buildFactSet(payload) }],
     });
 
-    if (urls.length > 0) {
+    if (payload.dayWiseBreakdown?.length) {
       body.push({
-        type: "ColumnSet",
-        columns: [
+        type: "Container",
+        items: [
           {
-            type: "Column",
-            width: "stretch",
-            items: urls.slice(0, 20).map((url) => ({
-              type: "TextBlock",
-              text: `• ${url.length > 80 ? url.substring(0, 80) + "..." : url}`,
-              wrap: true,
-              size: "small",
-              color: alertType === "broken" ? "attention" : "good",
+            type: "TextBlock",
+            text: "Day-wise breakdown",
+            weight: "bolder",
+          },
+          {
+            type: "FactSet",
+            facts: payload.dayWiseBreakdown.slice(0, 7).map((day) => ({
+              title: day.date,
+              value: `404 ${day.notFound} | 5xx ${day.serverError} | fixed ${day.fixed}`,
             })),
           },
         ],
       });
-
-      if (urls.length > 20) {
-        body.push({
-          type: "TextBlock",
-          text: `... and ${urls.length - 20} more`,
-          wrap: true,
-          isSubtle: true,
-          size: "small",
-        });
-      }
     }
-  } else {
-    body.push({
-      type: "FactSet",
-      facts: [
-        { title: "Total URLs", value: String(totalUrls) },
-        { title: "Checked", value: String(checkedUrls) },
-        { title: "Broken", value: String(brokenUrls.length) },
-        { title: "Fixed", value: String(fixedUrls.length) },
-      ],
-    });
   }
-
-  const card: Record<string, unknown> = {
-    $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
-    type: "AdaptiveCard",
-    version: "1.4",
-    body,
-  };
-
-  if (dashboardUrl) {
-    card.actions = [
-      {
-        type: "Action.OpenUrl",
-        title: "View Dashboard",
-        url: dashboardUrl,
-      },
-    ];
-  }
-
-  return {
-    type: "message",
-    attachments: [
-      {
-        contentType: "application/vnd.microsoft.card.adaptive",
-        content: card,
-      },
-    ],
-  };
-}
-
-function buildDayWiseSummaryAdaptiveCard(
-  payload: TeamsAlertPayload,
-  currentStatus: { totalUrls: number; brokenUrls: number; okUrls: number },
-  dayWiseBreakdown: Array<{ date: string; broke: number; fixed: number }>,
-): Record<string, unknown> {
-  const { websiteName, brokenUrls, fixedUrls, dashboardUrl } = payload;
-
-  const body: Record<string, unknown>[] = [
-    {
-      type: "Container",
-      style: "attention",
-      items: [
-        {
-          type: "TextBlock",
-          text: `📊 ${websiteName} - Summary Report`,
-          weight: "bolder",
-          size: "large",
-          color: "accent",
-          wrap: true,
-        },
-      ],
-    },
-    {
-      type: "TextBlock",
-      text: "📍 CURRENT STATUS",
-      weight: "bolder",
-      size: "small",
-      isSubtle: true,
-      spacing: "medium",
-    },
-    {
-      type: "FactSet",
-      facts: [
-        { title: "🔴 Broken", value: String(currentStatus.brokenUrls) },
-        { title: "🟢 OK", value: String(currentStatus.okUrls) },
-        { title: "📊 Total", value: String(currentStatus.totalUrls) },
-      ],
-    },
-    {
-      type: "TextBlock",
-      text: "📅 DAY-WISE BREAKDOWN",
-      weight: "bolder",
-      size: "small",
-      isSubtle: true,
-      spacing: "medium",
-    },
-  ];
-
-  const recentBreakdown = dayWiseBreakdown.slice(0, 7);
-  for (const day of recentBreakdown) {
-    const d = new Date(day.date);
-    const dateStr = d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
-    body.push({
-      type: "ColumnSet",
-      columns: [
-        {
-          type: "Column",
-          width: "stretch",
-          items: [
-            {
-              type: "TextBlock",
-              text: dateStr,
-              size: "small",
-            },
-          ],
-        },
-        {
-          type: "Column",
-          width: "auto",
-          items: [
-            {
-              type: "TextBlock",
-              text: day.broke > 0 ? `🔴 ${day.broke} broke` : "⚪ 0 broke",
-              size: "small",
-              color: day.broke > 0 ? "attention" : undefined,
-            },
-          ],
-        },
-        {
-          type: "Column",
-          width: "auto",
-          items: [
-            {
-              type: "TextBlock",
-              text: day.fixed > 0 ? `🟢 ${day.fixed} fixed` : "⚪ 0 fixed",
-              size: "small",
-              color: day.fixed > 0 ? "good" : undefined,
-            },
-          ],
-        },
-      ],
-    });
-  }
-
-  if (brokenUrls.length > 0) {
-    body.push({
-      type: "TextBlock",
-      text: `🆕 NEWLY BROKEN (${brokenUrls.length})`,
-      weight: "bolder",
-      size: "small",
-      isSubtle: true,
-      spacing: "medium",
-    });
-
-    const brokenList = brokenUrls.slice(0, 10);
-    body.push({
-      type: "TextBlock",
-      text:
-        brokenList
-          .map(
-            (url) =>
-              `• ${url.length > 60 ? url.substring(0, 60) + "..." : url}`,
-          )
-          .join("\n") +
-        (brokenUrls.length > 10
-          ? `\n_... and ${brokenUrls.length - 10} more_`
-          : ""),
-      wrap: true,
-      size: "small",
-    });
-  }
-
-  if (fixedUrls.length > 0) {
-    body.push({
-      type: "TextBlock",
-      text: `✅ RECOVERED (${fixedUrls.length})`,
-      weight: "bolder",
-      size: "small",
-      isSubtle: true,
-      spacing: "medium",
-    });
-
-    const fixedList = fixedUrls.slice(0, 10);
-    body.push({
-      type: "TextBlock",
-      text:
-        fixedList
-          .map(
-            (url) =>
-              `• ${url.length > 60 ? url.substring(0, 60) + "..." : url}`,
-          )
-          .join("\n") +
-        (fixedUrls.length > 10
-          ? `\n_... and ${fixedUrls.length - 10} more_`
-          : ""),
-      wrap: true,
-      size: "small",
-    });
-  }
-
-  const card: Record<string, unknown> = {
-    $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
-    type: "AdaptiveCard",
-    version: "1.4",
-    body,
-  };
-
-  if (dashboardUrl) {
-    card.actions = [
-      {
-        type: "Action.OpenUrl",
-        title: "🔗 View Dashboard",
-        url: dashboardUrl,
-      },
-    ];
-  }
-
-  return {
-    type: "message",
-    attachments: [
-      {
-        contentType: "application/vnd.microsoft.card.adaptive",
-        content: card,
-      },
-    ],
-  };
-}
-
-function buildSummaryMessage(payload: TeamsAlertPayload): TeamsCard {
-  const {
-    websiteName,
-    brokenUrls,
-    fixedUrls,
-    totalUrls,
-    checkedUrls,
-    dashboardUrl,
-  } = payload;
-  const brokenCount = brokenUrls.length;
-  const fixedCount = fixedUrls.length;
-  const hasChanges = brokenCount > 0 || fixedCount > 0;
 
   return {
     type: "Message",
     version: "1.0",
-    body: [
-      {
-        type: "Container",
-        items: [
-          {
-            type: "TextBlock",
-            text: `📊 Check Summary: ${websiteName}`,
-            weight: "bolder",
-            size: "large",
-          },
-        ],
-      },
-      {
-        type: "Container",
-        items: [
-          {
-            type: "FactSet",
-            facts: [
-              { title: "Total URLs", value: String(totalUrls) },
-              { title: "Checked", value: String(checkedUrls) },
-              { title: "Broken", value: String(brokenCount) },
-              { title: "Fixed", value: String(fixedCount) },
-            ],
-          },
-        ],
-      },
-      ...(hasChanges
-        ? [
-            {
-              type: "Container",
-              items: [
-                {
-                  type: "TextBlock",
-                  text: `Changes: ${brokenCount > 0 ? `${brokenCount} broken` : ""}${brokenCount > 0 && fixedCount > 0 ? ", " : ""}${fixedCount > 0 ? `${fixedCount} fixed` : ""}`,
-                  color: brokenCount > 0 ? "attention" : "good",
-                },
-              ],
-            },
-          ]
-        : []),
-    ],
-    actions: dashboardUrl
+    body,
+    actions: payload.dashboardUrl
       ? [
           {
             type: "Action.OpenUrl",
             title: "View Dashboard",
-            url: dashboardUrl,
+            url: payload.dashboardUrl,
           },
         ]
       : [],
+  };
+}
+
+function buildAdaptiveCard(
+  payload: TeamsAlertPayload,
+  alertType: "broken" | "fixed" | "summary",
+): Record<string, unknown> {
+  const body: Record<string, unknown>[] = [
+    {
+      type: "TextBlock",
+      text:
+        alertType === "broken"
+          ? `🚨 Issue Alert: ${payload.websiteName}`
+          : alertType === "fixed"
+            ? `✅ Recovery Alert: ${payload.websiteName}`
+            : `📊 Check Summary: ${payload.websiteName}`,
+      weight: "Bolder",
+      size: "Large",
+      wrap: true,
+    },
+  ];
+
+  if (alertType === "broken") {
+    body.push({
+      type: "TextBlock",
+      text: `New tracked issues: ${payload.notFoundUrls.length} 404 URL(s), ${payload.serverErrorUrls.length} 5xx URL(s)`,
+      wrap: true,
+    });
+    if (payload.issues.length > 0) {
+      body.push({
+        type: "FactSet",
+        facts: buildIssueFacts(payload.issues),
+      });
+    }
+  } else if (alertType === "fixed") {
+    body.push({
+      type: "FactSet",
+      facts: payload.fixedUrls.slice(0, 10).map((url) => ({
+        title: "Recovered",
+        value: url,
+      })),
+    });
+  } else {
+    body.push({
+      type: "FactSet",
+      facts: buildFactSet(payload),
+    });
+    if (payload.dayWiseBreakdown?.length) {
+      body.push({
+        type: "FactSet",
+        facts: payload.dayWiseBreakdown.slice(0, 7).map((day) => ({
+          title: day.date,
+          value: `404 ${day.notFound} | 5xx ${day.serverError} | fixed ${day.fixed}`,
+        })),
+      });
+    }
+  }
+
+  const card: Record<string, unknown> = {
+    $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+    type: "AdaptiveCard",
+    version: "1.4",
+    body,
+  };
+
+  if (payload.dashboardUrl) {
+    card.actions = [
+      {
+        type: "Action.OpenUrl",
+        title: "View Dashboard",
+        url: payload.dashboardUrl,
+      },
+    ];
+  }
+
+  return {
+    type: "message",
+    attachments: [
+      {
+        contentType: "application/vnd.microsoft.card.adaptive",
+        content: card,
+      },
+    ],
   };
 }
 
@@ -607,38 +287,9 @@ export async function sendTeamsAlert(
     return;
   }
 
-  const usePlatformWorkflowWebhook =
-    isPowerAutomateOrLogicAppsWebhookUrl(webhookUrl);
-
-  let body: unknown;
-
-  if (
-    usePlatformWorkflowWebhook &&
-    alertType === "summary" &&
-    payload.dayWiseBreakdown &&
-    payload.currentStatus
-  ) {
-    body = buildDayWiseSummaryAdaptiveCard(
-      payload,
-      payload.currentStatus,
-      payload.dayWiseBreakdown,
-    );
-  } else if (usePlatformWorkflowWebhook) {
-    body = buildTeamsWorkflowAdaptiveCard(payload, alertType);
-  } else {
-    let card: TeamsCard;
-    switch (alertType) {
-      case "broken":
-        card = buildBrokenMessage(payload);
-        break;
-      case "fixed":
-        card = buildFixedMessage(payload);
-        break;
-      default:
-        card = buildSummaryMessage(payload);
-    }
-    body = card;
-  }
+  const body = isPowerAutomateOrLogicAppsWebhookUrl(webhookUrl)
+    ? buildAdaptiveCard(payload, alertType)
+    : buildMessageCard(payload, alertType);
 
   try {
     const response = await fetch(webhookUrl, {
@@ -648,18 +299,12 @@ export async function sendTeamsAlert(
     });
 
     const responseText = await response.text();
-    const responsePreview =
-      responseText.length > 500
-        ? `${responseText.slice(0, 500)}…`
-        : responseText;
-
     if (!response.ok) {
       logger.error(
         {
           status: response.status,
-          response: responsePreview,
+          response: responseText,
           websiteId: payload.websiteId,
-          adaptiveCardPayload: usePlatformWorkflowWebhook,
         },
         "Failed to send Teams alert",
       );
@@ -668,13 +313,8 @@ export async function sendTeamsAlert(
         {
           websiteId: payload.websiteId,
           alertType,
-          brokenCount: payload.brokenUrls.length,
+          issueCount: payload.issues.length,
           fixedCount: payload.fixedUrls.length,
-          adaptiveCardPayload: usePlatformWorkflowWebhook,
-          httpStatus: response.status,
-          ...(usePlatformWorkflowWebhook && responsePreview
-            ? { responsePreview }
-            : {}),
         },
         "Sent Teams alert",
       );

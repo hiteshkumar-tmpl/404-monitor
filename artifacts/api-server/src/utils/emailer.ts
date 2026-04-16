@@ -1,7 +1,12 @@
 import { Resend } from "resend";
+import { PRODUCT_NAME } from "../constants/brand";
 import { logger } from "../lib/logger";
+import {
+  getIssueTypeLabel,
+  type IssueAlertEntry,
+} from "./issue-status";
 
-const emailFrom = process.env.EMAIL_FROM ?? "alerts@404monitor.com";
+const emailFrom = process.env.EMAIL_FROM ?? "alerts@sitewatch.io";
 
 function getResendClient(): Resend | null {
   if (!process.env.RESEND_API_KEY) {
@@ -17,14 +22,14 @@ function getResendClient(): Resend | null {
 }
 
 /**
- * Send a 404 alert email to the website owner.
+ * Send an issue alert email to the website owner.
  */
-export async function send404Alert(params: {
+export async function sendIssueAlert(params: {
   to: string;
   websiteName: string;
-  brokenUrls: string[];
+  issues: IssueAlertEntry[];
 }): Promise<boolean> {
-  const { to, websiteName, brokenUrls } = params;
+  const { to, websiteName, issues } = params;
 
   const resend = getResendClient();
   if (!resend) {
@@ -32,24 +37,36 @@ export async function send404Alert(params: {
     return false;
   }
 
-  const urlList = brokenUrls.map((u) => `- ${u}`).join("\n");
+  const urlList = issues
+    .map((issue) => `- ${issue.url} (${getIssueTypeLabel(issue.issueType)})`)
+    .join("\n");
 
-  const subject = `404 Alert: ${brokenUrls.length} broken page${brokenUrls.length > 1 ? "s" : ""} detected on ${websiteName}`;
+  const appOrigin = process.env.APP_URL?.replace(/\/$/, "") ?? "";
+  const brandingFooterHtml = appOrigin
+    ? `This alert was sent by <a href="${appOrigin}">${PRODUCT_NAME}</a>.`
+    : `This alert was sent by ${PRODUCT_NAME}.`;
+
+  const subject = `Issue Alert: ${issues.length} issue URL${issues.length > 1 ? "s" : ""} detected on ${websiteName}`;
 
   const htmlBody = `
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2 style="color: #dc2626;">404 Alert Detected</h2>
-      <p>The following page${brokenUrls.length > 1 ? "s" : ""} on <strong>${websiteName}</strong> ${brokenUrls.length > 1 ? "are" : "is"} now returning 404 errors:</p>
+      <h2 style="color: #dc2626;">Website Issues Detected</h2>
+      <p>The following URL${issues.length > 1 ? "s" : ""} on <strong>${websiteName}</strong> ${issues.length > 1 ? "are" : "is"} returning tracked issue responses:</p>
       <ul style="background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; padding: 16px 16px 16px 32px;">
-        ${brokenUrls.map((u) => `<li style="margin-bottom: 8px;"><a href="${u}" style="color: #dc2626;">${u}</a></li>`).join("")}
+        ${issues
+          .map(
+            (issue) =>
+              `<li style="margin-bottom: 8px;"><a href="${issue.url}" style="color: #dc2626;">${issue.url}</a> <span style="color:#7f1d1d;">(${getIssueTypeLabel(issue.issueType)})</span></li>`,
+          )
+          .join("")}
       </ul>
       <p style="color: #6b7280; font-size: 14px; margin-top: 24px;">
-        This alert was sent by <a href="https://404monitor.replit.app">404 Monitor</a>.
+        ${brandingFooterHtml}
       </p>
     </div>
   `;
 
-  const textBody = `404 Alert Detected\n\nThe following pages on ${websiteName} are now returning 404 errors:\n\n${urlList}\n\nThis alert was sent by 404 Monitor.`;
+  const textBody = `Website Issues Detected\n\nThe following URLs on ${websiteName} are now returning tracked issue responses:\n\n${urlList}\n\nThis alert was sent by ${PRODUCT_NAME}${appOrigin ? ` (${appOrigin})` : ""}.`;
 
   try {
     const { error } = await resend.emails.send({
@@ -68,8 +85,8 @@ export async function send404Alert(params: {
       return false;
     } else {
       logger.info(
-        { to, websiteName, count: brokenUrls.length },
-        "Sent 404 alert email",
+        { to, websiteName, count: issues.length },
+        "Sent issue alert email",
       );
       return true;
     }
@@ -88,7 +105,8 @@ export async function sendCheckSummaryEmail(params: {
   websiteName: string;
   totalUrls: number;
   checkedUrls: number;
-  brokenUrls: string[];
+  notFoundUrls: string[];
+  serverErrorUrls: string[];
   fixedUrls: string[];
   dashboardUrl?: string;
 }): Promise<boolean> {
@@ -97,7 +115,8 @@ export async function sendCheckSummaryEmail(params: {
     websiteName,
     totalUrls,
     checkedUrls,
-    brokenUrls,
+    notFoundUrls,
+    serverErrorUrls,
     fixedUrls,
     dashboardUrl,
   } = params;
@@ -108,19 +127,24 @@ export async function sendCheckSummaryEmail(params: {
     return false;
   }
 
-  const brokenPreview =
-    brokenUrls.length > 0
-      ? `<ul>${brokenUrls.slice(0, 10).map((url) => `<li><a href="${url}" style="color:#dc2626;">${url}</a></li>`).join("")}</ul>`
-      : "<p style=\"color:#16a34a;\">No broken URLs found in this run.</p>";
+  const totalIssues = notFoundUrls.length + serverErrorUrls.length;
+  const notFoundPreview =
+    notFoundUrls.length > 0
+      ? `<ul>${notFoundUrls.slice(0, 10).map((url) => `<li><a href="${url}" style="color:#dc2626;">${url}</a></li>`).join("")}</ul>`
+      : "<p style=\"color:#16a34a;\">No 404 URLs found in this run.</p>";
+  const serverErrorPreview =
+    serverErrorUrls.length > 0
+      ? `<ul>${serverErrorUrls.slice(0, 10).map((url) => `<li><a href="${url}" style="color:#b45309;">${url}</a></li>`).join("")}</ul>`
+      : "<p style=\"color:#16a34a;\">No 5xx URLs found in this run.</p>";
   const fixedPreview =
     fixedUrls.length > 0
       ? `<ul>${fixedUrls.slice(0, 10).map((url) => `<li><a href="${url}" style="color:#16a34a;">${url}</a></li>`).join("")}</ul>`
       : "";
 
   const subject =
-    brokenUrls.length > 0
-      ? `404 Monitor summary: ${brokenUrls.length} broken URL(s) on ${websiteName}`
-      : `404 Monitor summary: no broken URLs on ${websiteName}`;
+    totalIssues > 0
+      ? `${PRODUCT_NAME} summary: ${totalIssues} tracked issue URL(s) on ${websiteName}`
+      : `${PRODUCT_NAME} summary: no tracked issues on ${websiteName}`;
 
   const htmlBody = `
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
@@ -136,16 +160,26 @@ export async function sendCheckSummaryEmail(params: {
           <td style="padding:8px; border:1px solid #e2e8f0;">${checkedUrls}</td>
         </tr>
         <tr>
-          <td style="padding:8px; border:1px solid #e2e8f0;"><strong>Broken</strong></td>
-          <td style="padding:8px; border:1px solid #e2e8f0;">${brokenUrls.length}</td>
+          <td style="padding:8px; border:1px solid #e2e8f0;"><strong>Tracked Issues</strong></td>
+          <td style="padding:8px; border:1px solid #e2e8f0;">${totalIssues}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #e2e8f0;"><strong>404 URLs</strong></td>
+          <td style="padding:8px; border:1px solid #e2e8f0;">${notFoundUrls.length}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #e2e8f0;"><strong>5xx URLs</strong></td>
+          <td style="padding:8px; border:1px solid #e2e8f0;">${serverErrorUrls.length}</td>
         </tr>
         <tr>
           <td style="padding:8px; border:1px solid #e2e8f0;"><strong>Recovered</strong></td>
           <td style="padding:8px; border:1px solid #e2e8f0;">${fixedUrls.length}</td>
         </tr>
       </table>
-      <h3 style="margin-top:24px;">Broken URLs in this summary</h3>
-      ${brokenPreview}
+      <h3 style="margin-top:24px;">404 URLs in this summary</h3>
+      ${notFoundPreview}
+      <h3 style="margin-top:24px;">5xx URLs in this summary</h3>
+      ${serverErrorPreview}
       ${
         fixedUrls.length > 0
           ? `<h3 style="margin-top:24px;">Recovered URLs</h3>${fixedPreview}`
@@ -165,12 +199,17 @@ export async function sendCheckSummaryEmail(params: {
     `${websiteName} completed a monitoring run.`,
     `Total URLs: ${totalUrls}`,
     `Checked: ${checkedUrls}`,
-    `Broken: ${brokenUrls.length}`,
+    `Tracked issues: ${totalIssues}`,
+    `404 URLs: ${notFoundUrls.length}`,
+    `5xx URLs: ${serverErrorUrls.length}`,
     `Recovered: ${fixedUrls.length}`,
     "",
-    brokenUrls.length > 0
-      ? `Broken URLs:\n${brokenUrls.slice(0, 10).map((u) => `- ${u}`).join("\n")}`
-      : "No broken URLs found in this run.",
+    notFoundUrls.length > 0
+      ? `404 URLs:\n${notFoundUrls.slice(0, 10).map((u) => `- ${u}`).join("\n")}`
+      : "No 404 URLs found in this run.",
+    serverErrorUrls.length > 0
+      ? `\n5xx URLs:\n${serverErrorUrls.slice(0, 10).map((u) => `- ${u}`).join("\n")}`
+      : "\nNo 5xx URLs found in this run.",
     fixedUrls.length > 0
       ? `\nRecovered URLs:\n${fixedUrls.slice(0, 10).map((u) => `- ${u}`).join("\n")}`
       : "",
@@ -220,7 +259,7 @@ export async function sendPasswordResetEmail(params: {
     return;
   }
 
-  const subject = "Reset your 404 Monitor password";
+  const subject = `Reset your ${PRODUCT_NAME} password`;
 
   const htmlBody = `
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
@@ -233,16 +272,16 @@ export async function sendPasswordResetEmail(params: {
       <p style="color: #6b7280; font-size: 14px;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>
       <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
       <p style="color: #9ca3af; font-size: 12px;">
-        — The 404 Monitor Team
+        — The ${PRODUCT_NAME} Team
       </p>
     </div>
   `;
 
-  const textBody = `Reset Your Password\n\nHi ${userName},\n\nWe received a request to reset your password. Click the link below to create a new password:\n\n${resetLink}\n\nThis link expires in 1 hour. If you didn't request this, you can safely ignore this email.\n\n— The 404 Monitor Team`;
+  const textBody = `Reset Your Password\n\nHi ${userName},\n\nWe received a request to reset your password. Click the link below to create a new password:\n\n${resetLink}\n\nThis link expires in 1 hour. If you didn't request this, you can safely ignore this email.\n\n— The ${PRODUCT_NAME} Team`;
 
   try {
     const { error } = await resend.emails.send({
-      from: `404 Monitor <${emailFrom}>`,
+      from: `${PRODUCT_NAME} <${emailFrom}>`,
       to,
       subject,
       html: htmlBody,

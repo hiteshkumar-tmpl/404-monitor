@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
+import { PRODUCT_NAME } from "@/lib/brand";
 import { ArrowRight, CheckCircle2, Zap } from "lucide-react";
 
 export function Hero() {
@@ -25,9 +26,9 @@ export function Hero() {
           </h1>
 
           <p className="text-xl text-slate-600 mb-10 max-w-2xl mx-auto leading-relaxed">
-            404 Monitor imports URLs from your sitemap, checks them on a schedule
-            you control, and alerts your team in email, Slack, or Teams before
-            broken pages hurt campaigns or SEO.
+            {PRODUCT_NAME} pulls URLs from your sitemaps, runs scheduled health
+            checks, and alerts your team over email, Slack, or Teams before 404s,
+            5xx errors, or regressions hurt campaigns or SEO.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
@@ -66,7 +67,7 @@ export function Hero() {
               <div className="w-3 h-3 rounded-full bg-green-400" />
               <div className="flex-1 flex justify-center">
                 <div className="bg-slate-200 rounded-md px-3 py-1 text-xs text-slate-500 font-mono">
-                  app.404monitor.io
+                  app.sitewatch.io
                 </div>
               </div>
             </div>

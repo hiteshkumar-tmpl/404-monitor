@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Activity, AlertCircle, CheckCircle2 } from "lucide-react";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 export default function Signup() {
   const [name, setName] = useState("");
@@ -66,7 +67,7 @@ export default function Signup() {
             <Activity className="h-10 w-10 text-primary" />
           </div>
           <h1 className="text-2xl font-mono font-bold tracking-tight text-foreground">
-            404_MONITOR
+            {PRODUCT_NAME}
           </h1>
           <p className="text-sm text-muted-foreground mt-2 font-mono">
             Create your account and start monitoring your first property

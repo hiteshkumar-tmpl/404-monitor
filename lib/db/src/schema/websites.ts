@@ -17,6 +17,13 @@ export const websitesTable = pgTable("websites", {
   alertEmail: text("alert_email").notNull(),
   totalUrls: integer("total_urls").notNull().default(0),
   brokenUrls: integer("broken_urls").notNull().default(0),
+  notFoundUrls: integer("not_found_urls").notNull().default(0),
+  serverErrorUrls: integer("server_error_urls").notNull().default(0),
+  trackedIssueUrls: integer("tracked_issue_urls").notNull().default(0),
+  ownerName: text("owner_name"),
+  priority: text("priority").notNull().default("medium"),
+  tags: text("tags"),
+  notes: text("notes"),
   status: text("status").notNull().default("pending"), // pending | checking | ok | error
   checkIntervalMinutes: integer("check_interval_minutes").notNull().default(60),
   lastCheckedAt: timestamp("last_checked_at"),
@@ -59,6 +66,8 @@ export const monitoredUrlsTable = pgTable("monitored_urls", {
   lastStatus: integer("last_status"), // HTTP status code, null if never checked
   previousStatus: integer("previous_status"), // previous HTTP status code
   isBroken: boolean("is_broken").notNull().default(false),
+  issueType: text("issue_type"),
+  isTrackedIssue: boolean("is_tracked_issue").notNull().default(false),
   lastCheckedAt: timestamp("last_checked_at"),
   errorMessage: text("error_message"),
 });

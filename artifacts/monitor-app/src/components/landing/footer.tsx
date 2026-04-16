@@ -1,5 +1,6 @@
 import { Activity } from "lucide-react";
 import { Link } from "wouter";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 export function Footer() {
   return (
@@ -8,7 +9,7 @@ export function Footer() {
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-2">
             <Activity className="w-6 h-6 text-sky-500" />
-            <span className="font-bold text-white text-lg">404Monitor</span>
+            <span className="font-bold text-white text-lg">{PRODUCT_NAME}</span>
           </div>
 
           <div className="flex items-center gap-8 text-sm">
@@ -43,7 +44,9 @@ export function Footer() {
         </div>
 
         <div className="border-t border-slate-800 mt-8 pt-8 text-center text-sm">
-          <p>© {new Date().getFullYear()} 404Monitor. All rights reserved.</p>
+          <p>
+            © {new Date().getFullYear()} {PRODUCT_NAME}. All rights reserved.
+          </p>
         </div>
       </div>
     </footer>

@@ -27,7 +27,7 @@ async function checkUrl(
         timeout: DEFAULT_TIMEOUT_MS,
         maxRedirects: DEFAULT_MAX_REDIRECTS,
         validateStatus: () => true, // Don't throw on non-2xx
-        headers: { "User-Agent": "404Monitor/1.0" },
+        headers: { "User-Agent": "SiteWatch/1.0" },
       });
       return { url, statusCode: response.status, errorMessage: null };
     } catch (err: unknown) {

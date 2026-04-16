@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 export function Navbar() {
   return (
@@ -9,7 +10,7 @@ export function Navbar() {
         <div className="flex items-center justify-between h-16">
           <Link href="/landing" className="flex items-center gap-2">
             <Activity className="w-6 h-6 text-sky-600" />
-            <span className="font-bold text-xl text-slate-900">404Monitor</span>
+            <span className="font-bold text-xl text-slate-900">{PRODUCT_NAME}</span>
           </Link>
 
           <div className="hidden md:flex items-center gap-8">

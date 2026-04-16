@@ -49,13 +49,18 @@ export function TrendChart({
     data?.overallTrend.map((item) => ({
       date: item.date,
       broken: item.totalBroken,
+      serverError: item.totalServerErrors ?? 0,
       formattedDate: formatDate(item.date, data.days),
     })) ?? [];
 
   const chartConfig: ChartConfig = {
     broken: {
-      label: "Broken URLs",
+      label: "Tracked Issues",
       color: "hsl(var(--destructive))",
+    },
+    serverError: {
+      label: "5xx URLs",
+      color: "hsl(32 95% 44%)",
     },
   };
 
@@ -143,6 +148,14 @@ export function TrendChart({
               dot={false}
               activeDot={{ r: 4, strokeWidth: 0 }}
             />
+            <Line
+              type="monotone"
+              dataKey="serverError"
+              stroke="var(--color-serverError)"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4, strokeWidth: 0 }}
+            />
           </LineChart>
         </ChartContainer>
       </CardContent>
@@ -160,6 +173,9 @@ interface WebsiteTrendChartProps {
           checkedAt: string;
           totalUrls: number;
           brokenUrls: number;
+          trackedIssueUrls?: number;
+          notFoundUrls?: number;
+          serverErrorUrls?: number;
         }>;
       }
     | undefined;
@@ -175,15 +191,20 @@ export function WebsiteTrendChart({
   const chartData =
     data?.history.map((item) => ({
       date: item.checkedAt,
-      broken: item.brokenUrls,
+      broken: item.trackedIssueUrls ?? item.brokenUrls,
+      serverError: item.serverErrorUrls ?? 0,
       total: item.totalUrls,
       formattedDate: formatDate(item.checkedAt, data.days),
     })) ?? [];
 
   const chartConfig: ChartConfig = {
     broken: {
-      label: "Broken URLs",
+      label: "Tracked Issues",
       color: "hsl(var(--destructive))",
+    },
+    serverError: {
+      label: "5xx URLs",
+      color: "hsl(32 95% 44%)",
     },
     total: {
       label: "Total URLs",
@@ -258,7 +279,16 @@ export function WebsiteTrendChart({
               strokeWidth={2}
               dot={false}
               activeDot={{ r: 4, strokeWidth: 0 }}
-              name="Broken URLs"
+              name="Tracked Issues"
+            />
+            <Line
+              type="monotone"
+              dataKey="serverError"
+              stroke="var(--color-serverError)"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4, strokeWidth: 0 }}
+              name="5xx URLs"
             />
             <Line
               type="monotone"

@@ -1,4 +1,5 @@
 import { MessageSquare, Bell, Mail, Users } from "lucide-react";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 const integrations = [
   { name: "Slack", icon: MessageSquare, color: "purple" },
@@ -65,7 +66,7 @@ export function AlertsPreview() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-medium text-white">
-                        404Monitor Bot
+                        {PRODUCT_NAME} Bot
                       </span>
                       <span className="text-xs text-slate-500">
                         Today at 2:34 PM
@@ -92,7 +93,7 @@ export function AlertsPreview() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-medium text-white">
-                        404Monitor Bot
+                        {PRODUCT_NAME} Bot
                       </span>
                       <span className="text-xs text-slate-500">
                         Today at 11:15 AM

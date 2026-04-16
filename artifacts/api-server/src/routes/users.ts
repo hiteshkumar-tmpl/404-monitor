@@ -221,6 +221,9 @@ router.get("/users/stats", async (req, res) => {
       .select({
         totalUrls: websitesTable.totalUrls,
         brokenUrls: websitesTable.brokenUrls,
+        trackedIssueUrls: websitesTable.trackedIssueUrls,
+        notFoundUrls: websitesTable.notFoundUrls,
+        serverErrorUrls: websitesTable.serverErrorUrls,
       })
       .from(websitesTable);
 
@@ -229,7 +232,15 @@ router.get("/users/stats", async (req, res) => {
       0,
     );
     const totalBroken = totalWebsites.reduce(
-      (sum, w) => sum + (w.brokenUrls || 0),
+      (sum, w) => sum + (w.trackedIssueUrls || w.brokenUrls || 0),
+      0,
+    );
+    const totalNotFound = totalWebsites.reduce(
+      (sum, w) => sum + (w.notFoundUrls || w.brokenUrls || 0),
+      0,
+    );
+    const totalServerErrors = totalWebsites.reduce(
+      (sum, w) => sum + (w.serverErrorUrls || 0),
       0,
     );
 
@@ -238,6 +249,9 @@ router.get("/users/stats", async (req, res) => {
       totalWebsites: websiteCount?.count || 0,
       totalUrls,
       totalBroken,
+      totalTrackedIssues: totalBroken,
+      totalNotFound,
+      totalServerErrors,
     });
   } catch (err) {
     logger.error({ err }, "Failed to fetch stats");

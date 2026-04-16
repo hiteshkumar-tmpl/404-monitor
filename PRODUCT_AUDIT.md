@@ -1,7 +1,7 @@
-# 404 Monitor Product Audit
+# SiteWatch Product Audit
 
 ## Product Snapshot
-404 Monitor is a B2B website health tool focused on catching broken pages from XML sitemaps and notifying teams before SEO, campaign, or content issues spread. The product is already beyond MVP: it supports authenticated multi-user access, role-based admin controls, configurable monitoring intervals, multiple sitemap inputs per website, email/Slack/Teams alerts, and trend/history views. Today it feels strongest for small internal teams or agencies that need practical broken-link monitoring, but it is still early-stage from a product maturity standpoint because onboarding, investigation workflows, testing rigor, and launch-readiness are not yet at the same level as the core monitoring engine.
+SiteWatch is a B2B website health tool focused on catching broken pages from XML sitemaps and notifying teams before SEO, campaign, or content issues spread. The product is already beyond MVP: it supports authenticated multi-user access, role-based admin controls, configurable monitoring intervals, multiple sitemap inputs per website, email/Slack/Teams alerts, and trend/history views. Today it feels strongest for small internal teams or agencies that need practical broken-link monitoring, but it is still early-stage from a product maturity standpoint because onboarding, investigation workflows, testing rigor, and launch-readiness are not yet at the same level as the core monitoring engine.
 
 ## Feature Inventory
 
@@ -105,7 +105,7 @@
 - Operational maturity is early: no clear audit logs, limited visible rate-limit/abuse protections, and little evidence of production-grade monitoring around the monitor itself.
 
 ### Go-to-Market
-- The current positioning is useful but narrow: “404 monitor” is easy to understand, but also easy to perceive as a point tool.
+- The current positioning is useful but narrow: a “404-only” label is easy to understand, but also easy to perceive as a point tool.
 - There is not yet a strong packaging story for agencies, SEO teams, content teams, or platform teams.
 
 ## Recommendations
@@ -163,4 +163,4 @@ Today the best story is SMB/internal-team monitoring with room to grow into agen
 The architecture is workable, but execution readiness is held back by broken type generation, very light automated testing, and deployment/scheduler complexity. Fixing these is important not just for engineering quality, but for roadmap speed.
 
 ## Bottom Line
-404 Monitor is already a credible early-stage product with more real functionality than a typical MVP. The strongest next move is not a huge expansion in scope; it is to turn the existing monitoring engine into a cleaner activation, investigation, and team-collaboration experience while tightening engineering reliability. That path improves retention, sharpens positioning, and creates a better base for broader website health features later.
+SiteWatch is already a credible early-stage product with more real functionality than a typical MVP. The strongest next move is not a huge expansion in scope; it is to turn the existing monitoring engine into a cleaner activation, investigation, and team-collaboration experience while tightening engineering reliability. That path improves retention, sharpens positioning, and creates a better base for broader website health features later.

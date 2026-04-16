@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
-  title: Api
+  title: SiteWatch API
   version: 0.1.0
-  description: 404 Monitor API specification
+  description: SiteWatch API specification
 servers:
   - url: /api
     description: Base API path
@@ -623,6 +623,101 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /websites/{id}/urls/{urlId}:
+    delete:
+      operationId: deleteUrl
+      tags: [urls]
+      summary: Remove a monitored URL from a website
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: urlId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: URL deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Website or URL not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /websites/{id}/refresh-sitemap:
+    post:
+      operationId: refreshSitemap
+      tags: [websites]
+      summary: Re-parse sitemaps and import newly discovered URLs
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Refresh completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshSitemapResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /websites/{id}/sitemaps:
     get:
       operationId: getWebsiteSitemaps
@@ -1031,6 +1126,12 @@ components:
           type: integer
         totalBroken:
           type: integer
+        totalTrackedIssues:
+          type: integer
+        totalNotFound:
+          type: integer
+        totalServerErrors:
+          type: integer
       required:
         - totalUsers
         - totalWebsites
@@ -1051,6 +1152,12 @@ components:
         totalUrls:
           type: integer
         brokenUrls:
+          type: integer
+        notFoundUrls:
+          type: integer
+        serverErrorUrls:
+          type: integer
+        trackedIssueUrls:
           type: integer
         checkIntervalMinutes:
           type: integer
@@ -1100,6 +1207,9 @@ components:
         - alertEmail
         - totalUrls
         - brokenUrls
+        - notFoundUrls
+        - serverErrorUrls
+        - trackedIssueUrls
         - checkIntervalMinutes
         - createdAt
         - status
@@ -1218,6 +1328,12 @@ components:
           nullable: true
         isBroken:
           type: boolean
+        issueType:
+          type: string
+          nullable: true
+          enum: [not_found, server_error, null]
+        isTrackedIssue:
+          type: boolean
         lastCheckedAt:
           type: string
           nullable: true
@@ -1229,6 +1345,7 @@ components:
         - websiteId
         - url
         - isBroken
+        - isTrackedIssue
 
     CheckResult:
       type: object
@@ -1239,7 +1356,15 @@ components:
           type: integer
         brokenUrls:
           type: integer
+        serverErrorUrls:
+          type: integer
+        trackedIssueUrls:
+          type: integer
         newBrokenUrls:
+          type: integer
+        newServerErrorUrls:
+          type: integer
+        newIssueUrls:
           type: integer
         message:
           type: string
@@ -1259,12 +1384,29 @@ components:
           type: integer
         totalBroken:
           type: integer
+        totalTrackedIssues:
+          type: integer
+        totalNotFound:
+          type: integer
+        totalServerErrors:
+          type: integer
+        totalRecoveredRecent:
+          type: integer
+          description: URLs marked fixed in url status history within the last 24h
+        sitesCheckedRecent:
+          type: integer
+          description: Websites that completed a check within the last 24h
         websitesWithErrors:
           type: integer
       required:
         - totalWebsites
         - totalUrls
         - totalBroken
+        - totalTrackedIssues
+        - totalNotFound
+        - totalServerErrors
+        - totalRecoveredRecent
+        - sitesCheckedRecent
         - websitesWithErrors
 
     ForgotPasswordRequest:
@@ -1296,6 +1438,12 @@ components:
         totalUrls:
           type: integer
         brokenUrls:
+          type: integer
+        trackedIssueUrls:
+          type: integer
+        notFoundUrls:
+          type: integer
+        serverErrorUrls:
           type: integer
       required:
         - checkedAt
@@ -1335,6 +1483,10 @@ components:
                 type: string
               totalBroken:
                 type: integer
+              totalNotFound:
+                type: integer
+              totalServerErrors:
+                type: integer
         websites:
           type: array
           items:
@@ -1360,10 +1512,33 @@ components:
                 type: string
               broken:
                 type: integer
+              trackedIssues:
+                type: integer
+              notFound:
+                type: integer
+              serverError:
+                type: integer
       required:
         - id
         - name
         - history
+
+    RefreshSitemapResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        newUrls:
+          type: integer
+        totalUrls:
+          type: integer
+      required:
+        - success
+        - message
+        - newUrls
+        - totalUrls
 
     SuccessResponse:
       type: object
