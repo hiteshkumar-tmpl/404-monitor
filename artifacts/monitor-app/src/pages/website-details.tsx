@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "wouter";
 import {
   useGetWebsite,
@@ -11,6 +11,7 @@ import {
   useGetWebsiteHistory,
   useRefreshSitemap,
   useDeleteUrl,
+  customFetch,
   getGetWebsiteQueryKey,
   getGetWebsiteUrlsQueryKey,
   getGetWebsiteSitemapsQueryKey,
@@ -18,7 +19,7 @@ import {
   getGetWebsitesQueryKey,
   getGetWebsiteHistoryQueryKey,
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   Activity,
@@ -71,7 +72,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { WebsiteStatus } from "@workspace/api-client-react";
-import { INTERVAL_OPTIONS, intervalLabel } from "@/pages/add-website";
+import {
+  INTERVAL_OPTIONS,
+  PROPERTY_SETUP_NOTICE_KEY,
+  intervalLabel,
+  type PropertySetupNotice,
+} from "@/lib/monitoring";
+import {
+  filterUrlsForView,
+  getUrlChangeLabel,
+  type WebsiteFilter,
+  type WebsiteSummaryData,
+} from "@/lib/website-triage";
 import { WebsiteTrendChart } from "@/components/trend-chart";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -81,15 +93,16 @@ export default function WebsiteDetails() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const [statusFilter, setStatusFilter] = useState<
-    "all" | "broken" | "ok" | "trends"
-  >("all");
+  const [statusFilter, setStatusFilter] = useState<WebsiteFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [checkResult, setCheckResult] = useState<{
     message: string;
     newBroken: number;
     checked: number;
   } | null>(null);
+  const [setupNotice, setSetupNotice] = useState<PropertySetupNotice | null>(
+    null,
+  );
 
   // Edit dialog state
   const [editOpen, setEditOpen] = useState(false);
@@ -177,12 +190,38 @@ export default function WebsiteDetails() {
       },
     );
 
+  const { data: summaryData, isLoading: loadingSummaryData } = useQuery({
+    queryKey: ["website-summary-data", id, trendDays],
+    enabled: !!id,
+    queryFn: async (): Promise<WebsiteSummaryData> => {
+      return customFetch<WebsiteSummaryData>(
+        `/api/websites/${id}/summary-data?days=${trendDays}`,
+      );
+    },
+    refetchInterval: 300000,
+  });
+
   const triggerCheck = useTriggerCheck();
   const updateWebsite = useUpdateWebsite();
   const addSitemap = useAddSitemap();
   const deleteSitemap = useDeleteSitemap();
   const refreshSitemap = useRefreshSitemap();
   const deleteUrl = useDeleteUrl();
+
+  useEffect(() => {
+    const rawNotice = sessionStorage.getItem(PROPERTY_SETUP_NOTICE_KEY);
+    if (!rawNotice) return;
+
+    try {
+      const parsed = JSON.parse(rawNotice) as PropertySetupNotice;
+      if (parsed.websiteId === id) {
+        setSetupNotice(parsed);
+        sessionStorage.removeItem(PROPERTY_SETUP_NOTICE_KEY);
+      }
+    } catch {
+      sessionStorage.removeItem(PROPERTY_SETUP_NOTICE_KEY);
+    }
+  }, [id]);
 
   const handleRunCheck = () => {
     triggerCheck.mutate(
@@ -208,6 +247,9 @@ export default function WebsiteDetails() {
             queryKey: getGetDashboardSummaryQueryKey(),
           });
           queryClient.invalidateQueries({ queryKey: getGetWebsitesQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: ["website-summary-data", id],
+          });
         },
         onError: () => {
           toast({
@@ -234,6 +276,9 @@ export default function WebsiteDetails() {
           });
           queryClient.invalidateQueries({
             queryKey: getGetWebsiteUrlsQueryKey(id),
+          });
+          queryClient.invalidateQueries({
+            queryKey: ["website-summary-data", id],
           });
         },
         onError: () => {
@@ -272,6 +317,9 @@ export default function WebsiteDetails() {
           queryClient.invalidateQueries({ queryKey: getGetWebsitesQueryKey() });
           queryClient.invalidateQueries({
             queryKey: getGetDashboardSummaryQueryKey(),
+          });
+          queryClient.invalidateQueries({
+            queryKey: ["website-summary-data", id],
           });
           setShowDeleteUrlDialog(false);
           setUrlToDelete(null);
@@ -352,6 +400,9 @@ export default function WebsiteDetails() {
             queryKey: getGetWebsiteUrlsQueryKey(id),
           });
           queryClient.invalidateQueries({ queryKey: getGetWebsitesQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: ["website-summary-data", id],
+          });
         },
         onError: () => {
           toast({
@@ -387,6 +438,9 @@ export default function WebsiteDetails() {
           });
           queryClient.invalidateQueries({
             queryKey: getGetWebsiteQueryKey(id),
+          });
+          queryClient.invalidateQueries({
+            queryKey: ["website-summary-data", id],
           });
         },
         onError: () => {
@@ -479,9 +533,16 @@ export default function WebsiteDetails() {
     );
   };
 
-  const filteredUrls = urls?.filter((u) =>
-    u.url.toLowerCase().includes(searchQuery.toLowerCase()),
+  const triagedUrls = filterUrlsForView(
+    urls ?? [],
+    statusFilter,
+    searchQuery,
+    summaryData,
   );
+  const newlyBrokenCount = summaryData?.recentlyBrokenUrls.length ?? 0;
+  const recentlyFixedCount = summaryData?.recentlyFixedUrls.length ?? 0;
+  const recentChangesCount = newlyBrokenCount + recentlyFixedCount;
+  const currentOkCount = summaryData?.currentStatus.okUrls ?? 0;
 
   if (loadingWebsite) {
     return (
@@ -582,6 +643,22 @@ export default function WebsiteDetails() {
         </Alert>
       )}
 
+      {setupNotice && (
+        <Alert className="border-primary/30 bg-primary/5">
+          <CheckCircle2 className="h-4 w-4 text-primary" />
+          <AlertTitle className="font-mono">
+            {setupNotice.propertyName} is now onboarding
+          </AlertTitle>
+          <AlertDescription className="text-muted-foreground mt-1">
+            {website.totalUrls === 0
+              ? `We’re parsing the sitemap and importing URLs now. The first scheduled health check will run ${intervalLabel(setupNotice.checkIntervalMinutes).toLowerCase()}. Alerts are configured for ${setupNotice.alertDestinations.join(", ")}.`
+              : website.lastCheckedAt
+                ? `Imported ${website.totalUrls} URLs and already completed the first check. Alerts are configured for ${setupNotice.alertDestinations.join(", ")}.`
+                : `Imported ${website.totalUrls} URLs successfully. The first health check is still pending, and alerts are configured for ${setupNotice.alertDestinations.join(", ")}.`}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card className="bg-card">
           <CardContent className="p-6">
@@ -658,6 +735,75 @@ export default function WebsiteDetails() {
             >
               {website.brokenUrls}
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card
+          className={
+            newlyBrokenCount > 0
+              ? "border-destructive/40 bg-destructive/5"
+              : "bg-card"
+          }
+        >
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-mono text-muted-foreground">
+                  NEW ISSUES
+                </p>
+                <div className="mt-2 text-2xl font-bold font-mono">
+                  {loadingSummaryData ? "..." : newlyBrokenCount}
+                </div>
+              </div>
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Newly broken URLs detected in the recent change window.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-mono text-muted-foreground">
+                  RECOVERED
+                </p>
+                <div className="mt-2 text-2xl font-bold font-mono">
+                  {loadingSummaryData ? "..." : recentlyFixedCount}
+                </div>
+              </div>
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              URLs that were recently fixed and are now healthy again.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-mono text-muted-foreground">
+                  MOST RECENT CHECK
+                </p>
+                <div className="mt-2 text-lg font-semibold">
+                  {website.lastCheckedAt
+                    ? website.brokenUrls > 0
+                      ? `${website.brokenUrls} broken / ${currentOkCount} healthy`
+                      : "All monitored URLs healthy"
+                    : "Waiting for first check"}
+                </div>
+              </div>
+              <RefreshCw className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {website.lastCheckedAt
+                ? `Last checked ${formatDistanceToNow(new Date(website.lastCheckedAt), { addSuffix: true })}. ${recentChangesCount} recent change${recentChangesCount === 1 ? "" : "s"} surfaced.`
+                : "Run the first check after sitemap import to populate health data."}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -771,22 +917,31 @@ export default function WebsiteDetails() {
         </CardContent>
       </Card>
 
-      <Tabs value={statusFilter} onValueChange={(v: any) => setStatusFilter(v)}>
+      <Tabs value={statusFilter} onValueChange={(value) => setStatusFilter(value as WebsiteFilter)}>
         <Card>
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
-              <CardTitle className="font-mono">URL Inventory</CardTitle>
+              <CardTitle className="font-mono">Triage Queue</CardTitle>
             </div>
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4">
-              <TabsList>
-                <TabsTrigger value="all" data-testid="tab-all">
-                  All
+              <TabsList className="flex flex-wrap h-auto">
+                <TabsTrigger value="new" data-testid="tab-new">
+                  New Issues
+                </TabsTrigger>
+                <TabsTrigger value="resolved" data-testid="tab-resolved">
+                  Recovered
+                </TabsTrigger>
+                <TabsTrigger value="recent" data-testid="tab-recent">
+                  Recent Changes
                 </TabsTrigger>
                 <TabsTrigger value="broken" data-testid="tab-broken">
                   Broken
                 </TabsTrigger>
                 <TabsTrigger value="ok" data-testid="tab-ok">
-                  OK
+                  Healthy
+                </TabsTrigger>
+                <TabsTrigger value="all" data-testid="tab-all">
+                  All
                 </TabsTrigger>
                 <TabsTrigger value="trends" data-testid="tab-trends">
                   Trends
@@ -822,15 +977,26 @@ export default function WebsiteDetails() {
               )}
             </div>
           </CardHeader>
-          <TabsContent value="all" className="m-0">
+          <TabsContent value={statusFilter} className="m-0">
             <CardContent>
-              {loadingUrls ? (
+              {statusFilter === "trends" ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground font-mono">
+                    Historical broken URL data for this website
+                  </p>
+                  <WebsiteTrendChart
+                    data={websiteHistory}
+                    isLoading={loadingHistory}
+                    title="URL Health Over Time"
+                  />
+                </div>
+              ) : loadingUrls || loadingSummaryData ? (
                 <div className="space-y-2">
                   {[1, 2, 3, 4, 5].map((i) => (
                     <Skeleton key={i} className="h-12 w-full" />
                   ))}
                 </div>
-              ) : filteredUrls && filteredUrls.length > 0 ? (
+              ) : triagedUrls.length > 0 ? (
                 <div className="border border-border rounded-md overflow-hidden">
                   <div className="max-h-[600px] overflow-y-auto">
                     <table className="w-full text-sm text-left">
@@ -842,6 +1008,9 @@ export default function WebsiteDetails() {
                           <th className="px-4 py-3 font-mono font-medium">
                             URL
                           </th>
+                          <th className="px-4 py-3 font-mono font-medium hidden lg:table-cell">
+                            Change
+                          </th>
                           <th className="px-4 py-3 font-mono font-medium hidden md:table-cell">
                             Last Checked
                           </th>
@@ -851,68 +1020,90 @@ export default function WebsiteDetails() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {filteredUrls.map((url) => (
-                          <tr
-                            key={url.id}
-                            className="hover:bg-muted/30 transition-colors"
-                            data-testid={`row-url-${url.id}`}
-                          >
-                            <td className="px-4 py-3 whitespace-nowrap w-24">
-                              {getUrlStatusBadge(url.lastStatus, url.isBroken)}
-                            </td>
-                            <td className="px-4 py-3 font-mono text-xs break-all">
-                              <div className="flex flex-col">
-                                <span
-                                  className={
-                                    url.isBroken
-                                      ? "text-destructive font-medium"
-                                      : "text-foreground"
-                                  }
-                                >
-                                  {url.url.replace(/^https?:\/\/[^\/]+/, "") ||
-                                    "/"}
-                                </span>
-                                {url.errorMessage && (
-                                  <span className="text-destructive/80 mt-1 text-[10px]">
-                                    {url.errorMessage}
+                        {triagedUrls.map((url) => {
+                          const changeLabel = getUrlChangeLabel(url, summaryData);
+
+                          return (
+                            <tr
+                              key={url.id}
+                              className="hover:bg-muted/30 transition-colors"
+                              data-testid={`row-url-${url.id}`}
+                            >
+                              <td className="px-4 py-3 whitespace-nowrap w-24">
+                                {getUrlStatusBadge(url.lastStatus, url.isBroken)}
+                              </td>
+                              <td className="px-4 py-3 font-mono text-xs break-all">
+                                <div className="flex flex-col">
+                                  <span
+                                    className={
+                                      url.isBroken
+                                        ? "text-destructive font-medium"
+                                        : "text-foreground"
+                                    }
+                                  >
+                                    {url.url.replace(/^https?:\/\/[^\/]+/, "") ||
+                                      "/"}
+                                  </span>
+                                  {url.errorMessage && (
+                                    <span className="text-destructive/80 mt-1 text-[10px]">
+                                      {url.errorMessage}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 hidden lg:table-cell">
+                                {changeLabel ? (
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      changeLabel === "New issue"
+                                        ? "border-destructive/30 text-destructive"
+                                        : "border-emerald-500/30 text-emerald-600"
+                                    }
+                                  >
+                                    {changeLabel}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">
+                                    No recent status change
                                   </span>
                                 )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap hidden md:table-cell">
-                              {url.lastCheckedAt
-                                ? formatDistanceToNow(
-                                    new Date(url.lastCheckedAt),
-                                    {
-                                      addSuffix: true,
-                                    },
-                                  )
-                                : "-"}
-                            </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
-                              <div className="flex items-center justify-end gap-2">
-                                <a
-                                  href={url.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center text-xs text-muted-foreground hover:text-primary transition-colors"
-                                >
-                                  Visit{" "}
-                                  <ExternalLink className="ml-1 h-3 w-3" />
-                                </a>
-                                <button
-                                  onClick={() =>
-                                    handleDeleteUrl(url.id, url.url)
-                                  }
-                                  className="inline-flex items-center text-xs text-muted-foreground hover:text-destructive transition-colors"
-                                  title="Stop tracking this URL"
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                              </td>
+                              <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap hidden md:table-cell">
+                                {url.lastCheckedAt
+                                  ? formatDistanceToNow(
+                                      new Date(url.lastCheckedAt),
+                                      {
+                                        addSuffix: true,
+                                      },
+                                    )
+                                  : "-"}
+                              </td>
+                              <td className="px-4 py-3 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-2">
+                                  <a
+                                    href={url.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center text-xs text-muted-foreground hover:text-primary transition-colors"
+                                  >
+                                    Visit{" "}
+                                    <ExternalLink className="ml-1 h-3 w-3" />
+                                  </a>
+                                  <button
+                                    onClick={() =>
+                                      handleDeleteUrl(url.id, url.url)
+                                    }
+                                    className="inline-flex items-center text-xs text-muted-foreground hover:text-destructive transition-colors"
+                                    title="Stop tracking this URL"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -920,12 +1111,12 @@ export default function WebsiteDetails() {
               ) : (
                 <div className="text-center py-12 border border-dashed border-border rounded-md">
                   <p className="text-muted-foreground">
-                    No URLs found matching your criteria.
+                    No URLs found for the selected triage view.
                   </p>
                   {website.totalUrls === 0 && (
                     <p className="text-muted-foreground text-sm mt-2">
                       Make sure the sitemap URL points to an XML sitemap file
-                      (e.g. /sitemap.xml or /sitemap-0.xml).
+                      (for example `/sitemap.xml` or `/sitemap-0.xml`).
                       <br />
                       <button
                         onClick={openEdit}
@@ -937,221 +1128,6 @@ export default function WebsiteDetails() {
                   )}
                 </div>
               )}
-            </CardContent>
-          </TabsContent>
-          <TabsContent value="broken" className="m-0">
-            <CardContent>
-              {loadingUrls ? (
-                <div className="space-y-2">
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <Skeleton key={i} className="h-12 w-full" />
-                  ))}
-                </div>
-              ) : filteredUrls && filteredUrls.length > 0 ? (
-                <div className="border border-border rounded-md overflow-hidden">
-                  <div className="max-h-[600px] overflow-y-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-xs text-muted-foreground uppercase bg-muted/50 sticky top-0 z-10">
-                        <tr>
-                          <th className="px-4 py-3 font-mono font-medium">
-                            Status
-                          </th>
-                          <th className="px-4 py-3 font-mono font-medium">
-                            URL
-                          </th>
-                          <th className="px-4 py-3 font-mono font-medium hidden md:table-cell">
-                            Last Checked
-                          </th>
-                          <th className="px-4 py-3 font-mono font-medium text-right">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {filteredUrls
-                          .filter((url) => url.isBroken)
-                          .map((url) => (
-                            <tr
-                              key={url.id}
-                              className="hover:bg-muted/30 transition-colors"
-                              data-testid={`row-url-${url.id}`}
-                            >
-                              <td className="px-4 py-3 whitespace-nowrap w-24">
-                                {getUrlStatusBadge(
-                                  url.lastStatus,
-                                  url.isBroken,
-                                )}
-                              </td>
-                              <td className="px-4 py-3 font-mono text-xs break-all">
-                                <div className="flex flex-col">
-                                  <span className="text-destructive font-medium">
-                                    {url.url.replace(
-                                      /^https?:\/\/[^\/]+/,
-                                      "",
-                                    ) || "/"}
-                                  </span>
-                                  {url.errorMessage && (
-                                    <span className="text-destructive/80 mt-1 text-[10px]">
-                                      {url.errorMessage}
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap hidden md:table-cell">
-                                {url.lastCheckedAt
-                                  ? formatDistanceToNow(
-                                      new Date(url.lastCheckedAt),
-                                      {
-                                        addSuffix: true,
-                                      },
-                                    )
-                                  : "-"}
-                              </td>
-                              <td className="px-4 py-3 text-right whitespace-nowrap">
-                                <div className="flex items-center justify-end gap-2">
-                                  <a
-                                    href={url.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center text-xs text-muted-foreground hover:text-primary transition-colors"
-                                  >
-                                    Visit{" "}
-                                    <ExternalLink className="ml-1 h-3 w-3" />
-                                  </a>
-                                  <button
-                                    onClick={() =>
-                                      handleDeleteUrl(url.id, url.url)
-                                    }
-                                    className="inline-flex items-center text-xs text-muted-foreground hover:text-destructive transition-colors"
-                                    title="Stop tracking this URL"
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12 border border-dashed border-border rounded-md">
-                  <p className="text-muted-foreground">No broken URLs found.</p>
-                </div>
-              )}
-            </CardContent>
-          </TabsContent>
-          <TabsContent value="ok" className="m-0">
-            <CardContent>
-              {loadingUrls ? (
-                <div className="space-y-2">
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <Skeleton key={i} className="h-12 w-full" />
-                  ))}
-                </div>
-              ) : filteredUrls && filteredUrls.length > 0 ? (
-                <div className="border border-border rounded-md overflow-hidden">
-                  <div className="max-h-[600px] overflow-y-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-xs text-muted-foreground uppercase bg-muted/50 sticky top-0 z-10">
-                        <tr>
-                          <th className="px-4 py-3 font-mono font-medium">
-                            Status
-                          </th>
-                          <th className="px-4 py-3 font-mono font-medium">
-                            URL
-                          </th>
-                          <th className="px-4 py-3 font-mono font-medium hidden md:table-cell">
-                            Last Checked
-                          </th>
-                          <th className="px-4 py-3 font-mono font-medium text-right">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {filteredUrls
-                          .filter((url) => !url.isBroken)
-                          .map((url) => (
-                            <tr
-                              key={url.id}
-                              className="hover:bg-muted/30 transition-colors"
-                              data-testid={`row-url-${url.id}`}
-                            >
-                              <td className="px-4 py-3 whitespace-nowrap w-24">
-                                {getUrlStatusBadge(
-                                  url.lastStatus,
-                                  url.isBroken,
-                                )}
-                              </td>
-                              <td className="px-4 py-3 font-mono text-xs break-all">
-                                <div className="flex flex-col">
-                                  <span className="text-foreground">
-                                    {url.url.replace(
-                                      /^https?:\/\/[^\/]+/,
-                                      "",
-                                    ) || "/"}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap hidden md:table-cell">
-                                {url.lastCheckedAt
-                                  ? formatDistanceToNow(
-                                      new Date(url.lastCheckedAt),
-                                      {
-                                        addSuffix: true,
-                                      },
-                                    )
-                                  : "-"}
-                              </td>
-                              <td className="px-4 py-3 text-right whitespace-nowrap">
-                                <div className="flex items-center justify-end gap-2">
-                                  <a
-                                    href={url.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center text-xs text-muted-foreground hover:text-primary transition-colors"
-                                  >
-                                    Visit{" "}
-                                    <ExternalLink className="ml-1 h-3 w-3" />
-                                  </a>
-                                  <button
-                                    onClick={() =>
-                                      handleDeleteUrl(url.id, url.url)
-                                    }
-                                    className="inline-flex items-center text-xs text-muted-foreground hover:text-destructive transition-colors"
-                                    title="Stop tracking this URL"
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12 border border-dashed border-border rounded-md">
-                  <p className="text-muted-foreground">No URLs found.</p>
-                </div>
-              )}
-            </CardContent>
-          </TabsContent>
-          <TabsContent value="trends" className="m-0">
-            <CardContent>
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground font-mono">
-                  Historical broken URL data for this website
-                </p>
-                <WebsiteTrendChart
-                  data={websiteHistory}
-                  isLoading={loadingHistory}
-                  title="URL Health Over Time"
-                />
-              </div>
             </CardContent>
           </TabsContent>
         </Card>

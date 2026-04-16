@@ -12,12 +12,12 @@
         │                        │
         │                        │
         ▼                        ▼
-┌─────────────────┐      ┌─────────────────┐
-│                 │      │                 │
-│  GitHub        │      │  Email/Slack/   │
-│  Actions       │      │  Teams Alerts   │
-│  (Cron Jobs)   │      │                 │
-└─────────────────┘      └─────────────────┘
+┌─────────────────┐
+│                 │
+│  Email/Slack/   │
+│  Teams Alerts   │
+│                 │
+└─────────────────┘
 ```
 
 ## Step 1: Deploy API Server to Railway
@@ -71,35 +71,26 @@
 5. **Deploy**
    - Click "Deploy"
 
-## Step 3: Set Up GitHub Actions for Cron Jobs
+## Step 3: Use the Built-In Scheduler
 
-1. **Add Secrets to GitHub Repository**
-   - Go to GitHub repo → Settings → Secrets and variables → Actions
-   - Add these secrets:
-     - `API_URL` - Your Railway API URL (e.g., `https://your-api.up.railway.app`)
-     - `CRON_API_KEY` - A secret key you generate for cron authentication
-     - `DATABASE_URL`
-     - `JWT_SECRET`
-     - `RESEND_API_KEY`
-     - `EMAIL_FROM`
-     - `APP_URL`
+The API server already starts the monitoring scheduler on boot. It wakes up every
+minute and checks each website only when its configured interval is due.
 
-2. **Generate CRON_API_KEY**
+1. **Keep the API process running**
+   - Railway should run a persistent web service for `artifacts/api-server`.
+   - Do not rely on an external cron job for standard production use.
 
-   ```bash
-   openssl rand -hex 32
-   ```
+2. **Set the normal app secrets**
+   - `DATABASE_URL`
+   - `JWT_SECRET`
+   - `RESEND_API_KEY`
+   - `EMAIL_FROM`
+   - `APP_URL`
 
-   Use the output as your `CRON_API_KEY` secret
-
-3. **Update Cron Schedule** (optional)
-   - Edit `.github/workflows/cron.yml`
-   - Change the cron expression for your desired frequency
-   - Default is every 5 minutes
-
-4. **Enable GitHub Actions**
-   - The workflow will run automatically based on the schedule
-   - You can also trigger manually from the Actions tab
+3. **Optional fallback**
+   - Keep `.github/workflows/cron.yml` only if your host may sleep or if you
+     want an external recovery mechanism.
+   - If you use that fallback, generate and provide `CRON_API_KEY`.
 
 ## Step 4: Update Vercel Rewrites
 
@@ -124,11 +115,12 @@ Update `artifacts/monitor-app/vercel.json` with your actual Railway URL:
 | ---------------- | ------------------------------------- | ------------------------------------------------------------ |
 | `DATABASE_URL`   | Supabase PostgreSQL connection string | `postgresql://postgres:...@db.xxx.supabase.co:5432/postgres` |
 | `JWT_SECRET`     | Secret for JWT tokens (min 32 chars)  | `your-super-secret-key-at-least-32-chars`                    |
-| `CRON_API_KEY`   | Secret key for cron authentication    | `abc123...` (generate with `openssl rand -hex 32`)           |
 | `RESEND_API_KEY` | Resend API key for email alerts       | `re_xxxxx`                                                   |
 | `EMAIL_FROM`     | Sender email address                  | `alerts@yourdomain.com`                                      |
 | `APP_URL`        | Frontend URL                          | `https://your-app.vercel.app`                                |
 | `PORT`           | Server port ( Railway sets this)      | `3000`                                                       |
+| `ADMIN_SEED_EMAIL` | Optional first admin bootstrap email | `owner@yourdomain.com`                                       |
+| `ADMIN_SEED_PASSWORD` | Optional first admin bootstrap password | `set-once-then-remove`                                  |
 
 ### Vercel (Frontend)
 
@@ -160,9 +152,9 @@ Update `artifacts/monitor-app/vercel.json` with your actual Railway URL:
 
 ### Cron jobs not running
 
-- Verify GitHub Actions is enabled
-- Check Secrets are configured correctly
-- Manual trigger to test
+- Verify the API service is running continuously
+- Check the server logs for scheduler startup and due-check execution
+- Use the GitHub Actions workflow only if you intentionally run the optional external fallback
 
 ### Database connection issues
 

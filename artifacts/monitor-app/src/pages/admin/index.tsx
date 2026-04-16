@@ -23,7 +23,7 @@ import { WebsiteStatus } from "@workspace/api-client-react";
 
 export default function AdminDashboard() {
   const { data: stats, isLoading: loadingStats } = useGetAdminStats({
-    query: { refetchInterval: 30000 },
+    query: { refetchInterval: 30000, queryKey: ["getAdminStats"] },
   });
   const { data: websites, isLoading: loadingWebsites } = useGetWebsites();
   const { data: users, isLoading: loadingUsers } = useGetUsers();

@@ -4,22 +4,23 @@ const steps = [
   {
     number: "01",
     icon: Link2,
-    title: "Add Your Website",
-    description: "Enter your sitemap URL and website name. Takes 30 seconds.",
+    title: "Add your sitemap",
+    description:
+      "Paste the main XML sitemap, name the property, and choose the fallback alert email.",
   },
   {
     number: "02",
     icon: Search,
-    title: "We Monitor 24/7",
+    title: "We import and monitor",
     description:
-      "We crawl your sitemap and check every URL. Watch results roll in.",
+      "We parse the sitemap in the background, import the discovered URLs, and check them on the cadence you choose.",
   },
   {
     number: "03",
     icon: Bell,
-    title: "Get Instant Alerts",
+    title: "Route alerts to your team",
     description:
-      "Broken link detected? You'll know immediately via your preferred channel.",
+      "Send updates to email, Slack, or Teams with the right balance of immediate alerts and digest summaries.",
   },
 ];
 
@@ -29,11 +30,11 @@ export function HowItWorks() {
       <div className="container mx-auto px-4">
         <div className="text-center max-w-2xl mx-auto mb-16">
           <h2 className="text-4xl font-bold text-slate-900 mb-4">
-            Up and running in minutes
+            First value in one guided setup
           </h2>
           <p className="text-lg text-slate-600">
-            No complex setup, no technical knowledge needed. Just three simple
-            steps.
+            New users only need a sitemap and a destination for alerts. The
+            product handles URL import, check scheduling, and ongoing monitoring.
           </p>
         </div>
 

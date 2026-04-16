@@ -1,10 +1,10 @@
-import { MessageSquare, Bell, Mail } from "lucide-react";
+import { MessageSquare, Bell, Mail, Users } from "lucide-react";
 
 const integrations = [
   { name: "Slack", icon: MessageSquare, color: "purple" },
-  { name: "Discord", icon: MessageSquare, color: "indigo" },
+  { name: "Teams", icon: Users, color: "indigo" },
   { name: "Email", icon: Mail, color: "sky" },
-  { name: "Webhooks", icon: Bell, color: "emerald" },
+  { name: "Digests", icon: Bell, color: "emerald" },
 ];
 
 const colorClasses: Record<string, string> = {
@@ -24,9 +24,8 @@ export function AlertsPreview() {
               Alerts where your team works
             </h2>
             <p className="text-lg text-slate-300 mb-8 leading-relaxed">
-              When a 404 is detected, you'll know instantly through your
-              preferred channels. No more checking dashboards manually — we push
-              updates to you.
+              Route issues to email, Slack, or Teams and choose whether each
+              channel should get immediate updates or quieter summary-style digests.
             </p>
 
             <div className="grid grid-cols-2 gap-4">
@@ -74,7 +73,7 @@ export function AlertsPreview() {
                     </div>
                     <div className="bg-slate-700 rounded-xl p-3 text-sm">
                       <p className="text-purple-400 font-medium mb-1">
-                        🚨 3 New Broken Links Detected
+                        🚨 3 new broken links detected
                       </p>
                       <p className="text-slate-300 mb-2">Shopify Store</p>
                       <div className="space-y-1 text-slate-400">
@@ -101,10 +100,10 @@ export function AlertsPreview() {
                     </div>
                     <div className="bg-emerald-500/20 border border-emerald-500/30 rounded-xl p-3 text-sm">
                       <p className="text-emerald-400 font-medium">
-                        ✅ All Clear!
+                        ✅ Daily summary ready
                       </p>
                       <p className="text-slate-400">
-                        Acme Corp Blog - No broken links found in latest scan.
+                        Acme Corp Blog - 0 broken links, 214 URLs checked, all healthy in the latest run.
                       </p>
                     </div>
                   </div>

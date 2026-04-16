@@ -878,7 +878,7 @@ router.get("/dashboard/trends", async (req, res) => {
 async function parseSitemapAndStore(
   websiteId: number,
   sitemapUrl: string,
-  log: typeof console,
+  log: { info?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void },
 ): Promise<void> {
   try {
     const urls = await parseSitemap(sitemapUrl);

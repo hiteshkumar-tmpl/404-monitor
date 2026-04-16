@@ -9,6 +9,7 @@ import Dashboard from "@/pages/dashboard";
 import AddWebsite from "@/pages/add-website";
 import WebsiteDetails from "@/pages/website-details";
 import Login from "@/pages/login";
+import Signup from "@/pages/signup";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import Landing from "@/pages/landing";
@@ -64,6 +65,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/signup" component={Signup} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/landing" component={Landing} />

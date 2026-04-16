@@ -10,44 +10,44 @@ import {
 const features = [
   {
     icon: Radar,
-    title: "Real-Time Monitoring",
+    title: "Configurable Monitoring",
     description:
-      "Checks your sitemaps on a schedule you set. From every 15 minutes to once a week.",
+      "Monitor each property on the cadence that makes sense for it, from frequent checks to slower daily sweeps.",
     color: "sky",
   },
   {
     icon: Bell,
-    title: "Smart Alerts",
+    title: "Alerts Where Teams Work",
     description:
-      "Get notified where you work. Slack, Discord, email, or webhooks.",
+      "Send updates to email, Slack, and Microsoft Teams with immediate alerts or quieter digest-style summaries.",
     color: "violet",
   },
   {
     icon: TrendingUp,
-    title: "SEO Impact Tracking",
+    title: "History and Trends",
     description:
-      "See which broken pages hurt most. Track crawl errors by importance.",
+      "See broken-link trends over time so teams can track whether a property is getting healthier or riskier.",
     color: "emerald",
   },
   {
     icon: LayoutGrid,
-    title: "Beautiful Dashboard",
+    title: "Actionable Dashboard",
     description:
-      "Modern UI that makes monitoring feel effortless, not tedious.",
+      "Review monitored properties, recent checks, URL health, and triage queues from one place.",
     color: "sky",
   },
   {
     icon: Building2,
-    title: "White-Label for Agencies",
+    title: "Multi-User Admin Controls",
     description:
-      "Rebrand and resell to your clients. Your dashboard, your domain.",
+      "Support admins managing multiple users and websites without sharing one overloaded account.",
     color: "amber",
   },
   {
     icon: Zap,
-    title: "Simple Setup",
+    title: "Simple Sitemap Setup",
     description:
-      "Paste your sitemap URL. Done. No technical knowledge required.",
+      "Add a property with a sitemap URL, import monitored pages automatically, and add more sitemaps later.",
     color: "rose",
   },
 ];
@@ -66,11 +66,11 @@ export function Features() {
       <div className="container mx-auto px-4">
         <div className="text-center max-w-2xl mx-auto mb-16">
           <h2 className="text-4xl font-bold text-slate-900 mb-4">
-            Everything you need to stay on top of 404s
+            Website health monitoring built for SEO and marketing teams
           </h2>
           <p className="text-lg text-slate-600">
-            From instant alerts to SEO insights, we've got everything covered so
-            you can focus on building.
+            Monitor sitemap URLs, route alerts to the right channels, and track
+            broken-link trends without stitching together separate tools.
           </p>
         </div>
 

@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
+import jwt, { type SignOptions } from "jsonwebtoken";
 import { logger } from "../lib/logger";
 
 const JWT_SECRET =
   process.env.JWT_SECRET || "dev-secret-change-in-production-min-32-chars";
-const JWT_EXPIRY = process.env.JWT_EXPIRY || "24h";
+const JWT_EXPIRY = (process.env.JWT_EXPIRY || "24h") as SignOptions["expiresIn"];
 const COOKIE_NAME = "auth_token";
 const APP_URL = process.env.APP_URL || "";
 const COOKIE_SECURE =

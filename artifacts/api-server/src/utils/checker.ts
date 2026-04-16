@@ -8,8 +8,13 @@ import {
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { parseSitemap } from "./sitemapParser";
-import { checkUrlsBatch } from "./urlChecker";
-import { send404Alert } from "./emailer";
+import {
+  checkUrlsBatch,
+  getRecommendedConcurrency,
+  getUrlCheckerConfig,
+  runInBatches,
+} from "./urlChecker";
+import { send404Alert, sendCheckSummaryEmail } from "./emailer";
 import { sendSlackAlert, type SlackAlertPayload } from "./slack-notifier";
 import { sendTeamsAlert, type TeamsAlertPayload } from "./teams-notifier";
 import { logger } from "../lib/logger";
@@ -32,6 +37,8 @@ type AlertSummaryInterval =
   | "14days"
   | "30days"
   | "custom";
+
+const DEFAULT_DASHBOARD_BASE_URL = "http://136.113.130.29:5173";
 
 /**
  * Run a full check for a single website:
@@ -134,15 +141,31 @@ export async function checkWebsite(
     }
 
     const urlStrings = urlRows.map((r) => r.url);
-    const checkResults = await checkUrlsBatch(urlStrings, 5);
+    const concurrency = getRecommendedConcurrency(urlRows.length);
+    const checkerConfig = getUrlCheckerConfig();
+
+    logger.info(
+      {
+        websiteId,
+        urlCount: urlRows.length,
+        concurrency,
+        timeoutMs: checkerConfig.timeoutMs,
+        retries: checkerConfig.retries,
+      },
+      "Running URL checks",
+    );
+    const checkResults = await checkUrlsBatch(urlStrings, concurrency);
 
     // Step 4: Update URL statuses and detect new breakages/fixes
     const newBrokenUrls: string[] = [];
     const newFixedUrls: string[] = [];
 
-    for (const result of checkResults) {
-      const existing = urlRows.find((r) => r.url === result.url);
-      if (!existing) continue;
+    const urlRowByUrl = new Map(urlRows.map((r) => [r.url, r] as const));
+    const dbWriteConcurrency = Number(process.env.URL_DB_WRITE_CONCURRENCY || 25);
+
+    await runInBatches(checkResults, dbWriteConcurrency, async (result) => {
+      const existing = urlRowByUrl.get(result.url);
+      if (!existing) return;
 
       const isNowBroken = result.statusCode === 404;
       const wasOk =
@@ -151,6 +174,7 @@ export async function checkWebsite(
 
       const wasBroken = existing.isBroken && existing.lastStatus === 404;
       const isNowOk = result.statusCode === 200;
+      const now = new Date();
 
       // Detect transition: was ok (or unchecked) → now 404
       if (isNowBroken && wasOk) {
@@ -172,7 +196,7 @@ export async function checkWebsite(
           previousStatus: existing.lastStatus,
           lastStatus: result.statusCode,
           isBroken: isNowBroken,
-          lastCheckedAt: new Date(),
+          lastCheckedAt: now,
           errorMessage: result.errorMessage,
         })
         .where(eq(monitoredUrlsTable.id, existing.id));
@@ -185,6 +209,7 @@ export async function checkWebsite(
           newStatus: result.statusCode,
           wasBroken: true,
           becameFixed: false,
+          changedAt: now,
         });
       }
 
@@ -196,9 +221,10 @@ export async function checkWebsite(
           newStatus: result.statusCode,
           wasBroken: false,
           becameFixed: true,
+          changedAt: now,
         });
       }
-    }
+    });
 
     // Step 5: Update website summary
     const brokenCount = checkResults.filter((r) => r.statusCode === 404).length;
@@ -228,7 +254,7 @@ export async function checkWebsite(
       "none") as AlertSummaryInterval;
     const slackRealtimeEnabled = website.slackRealtimeAlerts ?? true;
     const teamsRealtimeEnabled = website.teamsRealtimeAlerts ?? true;
-    const dashboardBaseUrl = process.env.APP_URL || "http://localhost:5173";
+    const dashboardBaseUrl = process.env.APP_URL || DEFAULT_DASHBOARD_BASE_URL;
     const dashboardUrl = `${dashboardBaseUrl}/dashboard`;
 
     const slackPayload: SlackAlertPayload = {
@@ -306,6 +332,7 @@ export async function checkWebsite(
     );
 
     // Send email alert for newly broken URLs (existing behavior)
+    let emailAlertSent = false;
     if (newBrokenUrls.length > 0) {
       logger.info(
         {
@@ -315,12 +342,30 @@ export async function checkWebsite(
         },
         "Sending email alert",
       );
-      await send404Alert({
+      emailAlertSent = await send404Alert({
         to: website.alertEmail,
         websiteName: website.name,
         brokenUrls: newBrokenUrls,
       });
     }
+
+    // Build summary payload once and use it for summary email / Teams summary.
+    const summaryPayload = {
+      brokenUrls: newBrokenUrls,
+      fixedUrls: newFixedUrls,
+      totalUrls: urlRows.length,
+      checkedUrls: checkResults.length,
+      currentStatus: {
+        totalUrls: urlRows.length,
+        brokenUrls: brokenCount,
+        okUrls: urlRows.length - brokenCount,
+      },
+      dayWiseBreakdown: [] as Array<{
+        date: string;
+        broke: number;
+        fixed: number;
+      }>,
+    };
 
     // Helper to build summary payload for day-wise summary
     const buildSummaryPayload = async (
@@ -401,6 +446,17 @@ export async function checkWebsite(
       };
     };
 
+    // Send a run summary email after every check, even if no URLs are broken.
+    const summaryEmailSent = await sendCheckSummaryEmail({
+      to: website.alertEmail,
+      websiteName: website.name,
+      totalUrls: summaryPayload.totalUrls,
+      checkedUrls: summaryPayload.checkedUrls,
+      brokenUrls: brokenCount > 0 ? urlRows.filter((u) => u.isBroken).map((u) => u.url) : [],
+      fixedUrls: newFixedUrls,
+      dashboardUrl,
+    });
+
     // Send Slack alerts
     if (shouldSendSlackAlert) {
       const lastSentAt = website.lastSlackSummarySentAt;
@@ -463,7 +519,32 @@ export async function checkWebsite(
       }
     }
 
-    // Send Teams alerts
+    // Send Teams summary after every check so the team knows the run completed.
+    if (shouldSendTeamsAlert) {
+      const realtimeSummaryData = await buildSummaryPayload(
+        summaryInterval === "none" ? "7days" : summaryInterval,
+      );
+      logger.info(
+        { webhookUrl: website.teamsWebhookUrl },
+        "Sending Teams run summary",
+      );
+      await sendTeamsAlert(
+        website.teamsWebhookUrl!,
+        {
+          ...teamsPayload,
+          brokenUrls:
+            brokenCount > 0
+              ? urlRows.filter((u) => u.isBroken).map((u) => u.url)
+              : [],
+          fixedUrls: realtimeSummaryData.fixedUrls,
+          currentStatus: realtimeSummaryData.currentStatus,
+          dayWiseBreakdown: realtimeSummaryData.dayWiseBreakdown,
+        },
+        "summary",
+      );
+    }
+
+    // Preserve existing additional Teams alert behavior for broken/fixed changes.
     if (shouldSendTeamsAlert) {
       const lastSentAt = website.lastTeamsSummarySentAt;
       let sendSummary =
@@ -526,6 +607,8 @@ export async function checkWebsite(
         checkedUrls: urlRows.length,
         brokenCount,
         newBroken: newBrokenUrls.length,
+        emailAlertSent,
+        summaryEmailSent,
       },
       "Website check complete",
     );
@@ -537,8 +620,12 @@ export async function checkWebsite(
       newBrokenUrls: newBrokenUrls.length,
       message:
         newBrokenUrls.length > 0
-          ? `Found ${newBrokenUrls.length} new broken URL(s), alert sent`
-          : "Check complete, no new issues",
+          ? emailAlertSent
+            ? `Found ${newBrokenUrls.length} new broken URL(s), email alert sent`
+            : `Found ${newBrokenUrls.length} new broken URL(s), but email delivery failed`
+          : summaryEmailSent
+            ? "Check complete, no new issues, summary email sent"
+            : "Check complete, no new issues, but summary email delivery failed",
     };
   } catch (err) {
     logger.error({ err, websiteId }, "Error during website check");

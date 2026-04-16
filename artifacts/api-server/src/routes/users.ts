@@ -217,7 +217,7 @@ router.get("/users/stats", async (req, res) => {
       .select({ count: count() })
       .from(websitesTable);
 
-    const [totalWebsites] = await db
+    const totalWebsites = await db
       .select({
         totalUrls: websitesTable.totalUrls,
         brokenUrls: websitesTable.brokenUrls,

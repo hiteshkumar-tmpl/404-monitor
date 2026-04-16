@@ -20,6 +20,12 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const signupSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email(),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(6, "Password must be at least 6 characters"),
@@ -33,6 +39,24 @@ const resetPasswordSchema = z.object({
   token: z.string().min(1),
   newPassword: z.string().min(6, "Password must be at least 6 characters"),
 });
+
+function serializeAuthUser(user: {
+  id: number;
+  email: string;
+  name: string;
+  role: string;
+  createdAt?: Date | null;
+  lastLoginAt?: Date | null;
+}) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    createdAt: user.createdAt?.toISOString() ?? new Date().toISOString(),
+    lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+  };
+}
 
 router.post("/auth/login", async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
@@ -61,9 +85,11 @@ router.post("/auth/login", async (req, res) => {
       return;
     }
 
+    const lastLoginAt = new Date();
+
     await db
       .update(usersTable)
-      .set({ lastLoginAt: new Date() })
+      .set({ lastLoginAt })
       .where(eq(usersTable.id, user.id));
 
     const token = generateToken({
@@ -76,14 +102,74 @@ router.post("/auth/login", async (req, res) => {
 
     logger.info({ userId: user.id, email: user.email }, "User logged in");
 
-    res.json({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-    });
+    res.json(
+      serializeAuthUser({
+        ...user,
+        lastLoginAt,
+      }),
+    );
   } catch (err) {
     logger.error({ err }, "Login error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/auth/signup", async (req, res) => {
+  const parsed = signupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { name, email, password } = parsed.data;
+  const normalizedEmail = email.toLowerCase();
+
+  try {
+    const [existing] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.email, normalizedEmail))
+      .limit(1);
+
+    if (existing) {
+      res.status(400).json({ error: "An account with this email already exists" });
+      return;
+    }
+
+    const passwordHash = await hashPassword(password);
+    const lastLoginAt = new Date();
+
+    const [user] = await db
+      .insert(usersTable)
+      .values({
+        email: normalizedEmail,
+        passwordHash,
+        name,
+        role: "user",
+        lastLoginAt,
+      })
+      .returning({
+        id: usersTable.id,
+        email: usersTable.email,
+        name: usersTable.name,
+        role: usersTable.role,
+        createdAt: usersTable.createdAt,
+        lastLoginAt: usersTable.lastLoginAt,
+      });
+
+    const token = generateToken({
+      userId: user.id,
+      email: user.email,
+      role: "user",
+    });
+
+    setAuthCookie(res, token);
+
+    logger.info({ userId: user.id, email: user.email }, "User signed up");
+
+    res.status(201).json(serializeAuthUser(user));
+  } catch (err) {
+    logger.error({ err }, "Signup error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -114,14 +200,7 @@ router.get("/auth/me", authenticate, async (req, res) => {
       return;
     }
 
-    res.json({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      createdAt: user.createdAt?.toISOString(),
-      lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
-    });
+    res.json(serializeAuthUser(user));
   } catch (err) {
     logger.error({ err }, "Error fetching user");
     res.status(500).json({ error: "Internal server error" });

@@ -6,6 +6,7 @@
     "build": "npm run typecheck && npm run build --workspaces --if-present",
     "typecheck:libs": "tsc --build",
     "typecheck": "npm run typecheck:libs && npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "dev": "concurrently -n api,ui -c blue,cyan \"npm run dev:api\" \"npm run dev:ui\"",
     "dev:api": "cd artifacts/api-server && npm run dev",
     "dev:ui": "cd artifacts/monitor-app && npm run dev"

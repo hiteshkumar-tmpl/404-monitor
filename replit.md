@@ -17,7 +17,7 @@ A full-stack web application that monitors website sitemaps and sends email aler
 - **Build**: esbuild (CJS bundle)
 - **Frontend**: React + Vite (Tailwind CSS, shadcn/ui, wouter routing)
 - **Email**: Resend API
-- **Scheduler**: node-cron (hourly checks)
+- **Scheduler**: node-cron (runs every minute and checks each site on its configured interval)
 - **HTTP client**: Axios (with retry logic)
 - **XML parsing**: xml2js
 - **Auth**: JWT tokens via httpOnly cookies + bcryptjs password hashing
@@ -26,7 +26,7 @@ A full-stack web application that monitors website sitemaps and sends email aler
 
 1. Add websites by providing a sitemap URL + alert email
 2. Sitemap parser fetches and stores all `<loc>` URLs from sitemap.xml
-3. Hourly cron job checks all URLs concurrently (5 at a time)
+3. Background scheduler checks each website on its configured interval and processes URLs concurrently (5 at a time)
 4. 404 detection: if URL was 200 → now 404, triggers email alert via Resend
 5. Manual "Run Check Now" button per website
 6. Dashboard with summary stats (total sites, URLs, broken URLs)
@@ -45,7 +45,7 @@ artifacts/
       routes/        — API route handlers (auth.ts, users.ts, websites.ts, health.ts)
       middleware/   — auth.ts (JWT middleware)
       utils/        — sitemapParser.ts, urlChecker.ts, emailer.ts, checker.ts, password.ts
-      cron/          — scheduler.ts (hourly node-cron job)
+      cron/          — scheduler.ts (per-site interval scheduler)
   monitor-app/       — React + Vite frontend (served at /)
     src/
       pages/         — dashboard.tsx, add-website.tsx, website-details.tsx, login.tsx
@@ -77,12 +77,13 @@ lib/
 - `JWT_EXPIRY` — JWT token expiry (default: 24h)
 - `PORT` — Server port (required)
 
-## Default Admin Account
+## Admin Bootstrap
 
-On first startup, the admin user is automatically seeded:
+If you want to seed the first admin user in a non-local environment, provide:
 
-- **Email**: hitesh.k@tunica.tech
-- **Password**: #Hitesh001
+- `ADMIN_SEED_EMAIL`
+- `ADMIN_SEED_PASSWORD`
+- `ADMIN_SEED_NAME` (optional, defaults to `Admin`)
 
 ## Authentication
 

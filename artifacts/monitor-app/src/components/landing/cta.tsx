@@ -8,10 +8,11 @@ export function CTA() {
       <div className="container mx-auto px-4">
         <div className="max-w-3xl mx-auto text-center">
           <h2 className="text-4xl md:text-5xl font-bold text-slate-900 mb-6">
-            Start monitoring in 30 seconds
+            Start with one sitemap and grow from there
           </h2>
           <p className="text-xl text-slate-600 mb-10">
-            Free forever for personal projects. No credit card required.
+            Add a property, import URLs automatically, and route alerts where
+            your team already works.
           </p>
 
           <Link href="/login">
@@ -19,7 +20,7 @@ export function CTA() {
               size="lg"
               className="bg-sky-600 hover:bg-sky-700 text-white px-10 py-6 text-lg font-semibold rounded-xl shadow-lg shadow-sky-500/25"
             >
-              Get Started Free
+              Add Your First Property
               <ArrowRight className="ml-2 w-5 h-5" />
             </Button>
           </Link>
@@ -27,19 +28,19 @@ export function CTA() {
           <div className="flex flex-wrap items-center justify-center gap-6 mt-10 text-sm text-slate-500">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-              <span>Unlimited websites</span>
+              <span>Configurable intervals</span>
             </div>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-              <span>Real-time alerts</span>
+              <span>Email, Slack, and Teams alerts</span>
             </div>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-              <span>SEO insights</span>
+              <span>Trend history and triage views</span>
             </div>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-              <span>White-label</span>
+              <span>Multi-user admin controls</span>
             </div>
           </div>
         </div>

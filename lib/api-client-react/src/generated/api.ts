@@ -35,6 +35,7 @@ import type {
   LoginRequest,
   MonitoredUrl,
   ResetPasswordRequest,
+  SignupRequest,
   SuccessResponse,
   TrendsResponse,
   UpdateUserRequest,
@@ -1343,6 +1344,94 @@ export const useLogin = <
   TContext
 > => {
   return useMutation(getLoginMutationOptions(options));
+};
+
+/**
+ * Create a new user account
+ * @summary Signup
+ */
+export const getSignupUrl = () => {
+  return `/api/auth/signup`;
+};
+
+export const signup = async (
+  signupRequest: SignupRequest,
+  options?: RequestInit,
+): Promise<AuthUser> => {
+  return customFetch<AuthUser>(getSignupUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(signupRequest),
+  });
+};
+
+export const getSignupMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof signup>>,
+    TError,
+    { data: BodyType<SignupRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof signup>>,
+  TError,
+  { data: BodyType<SignupRequest> },
+  TContext
+> => {
+  const mutationKey = ["signup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof signup>>,
+    { data: BodyType<SignupRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return signup(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SignupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof signup>>
+>;
+export type SignupMutationBody = BodyType<SignupRequest>;
+export type SignupMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * Create a new user account
+ * @summary Signup
+ */
+export const useSignup = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof signup>>,
+    TError,
+    { data: BodyType<SignupRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof signup>>,
+  TError,
+  { data: BodyType<SignupRequest> },
+  TContext
+> => {
+  return useMutation(getSignupMutationOptions(options));
 };
 
 /**

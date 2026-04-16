@@ -1,8 +1,20 @@
 import { Resend } from "resend";
 import { logger } from "../lib/logger";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const emailFrom = process.env.EMAIL_FROM ?? "alerts@404monitor.com";
+
+function getResendClient(): Resend | null {
+  if (!process.env.RESEND_API_KEY) {
+    return null;
+  }
+
+  try {
+    return new Resend(process.env.RESEND_API_KEY);
+  } catch (err) {
+    logger.error({ err }, "Failed to initialize Resend client");
+    return null;
+  }
+}
 
 /**
  * Send a 404 alert email to the website owner.
@@ -11,12 +23,13 @@ export async function send404Alert(params: {
   to: string;
   websiteName: string;
   brokenUrls: string[];
-}): Promise<void> {
+}): Promise<boolean> {
   const { to, websiteName, brokenUrls } = params;
 
-  if (!process.env.RESEND_API_KEY) {
+  const resend = getResendClient();
+  if (!resend) {
     logger.warn("RESEND_API_KEY not set, skipping email alert");
-    return;
+    return false;
   }
 
   const urlList = brokenUrls.map((u) => `- ${u}`).join("\n");
@@ -52,14 +65,142 @@ export async function send404Alert(params: {
         { error, to, websiteName },
         "Failed to send alert email via Resend",
       );
+      return false;
     } else {
       logger.info(
         { to, websiteName, count: brokenUrls.length },
         "Sent 404 alert email",
       );
+      return true;
     }
   } catch (err) {
     logger.error({ err, to, websiteName }, "Exception sending alert email");
+    return false;
+  }
+}
+
+/**
+ * Send a per-run summary email so users know a check completed even when no
+ * new breakages were detected.
+ */
+export async function sendCheckSummaryEmail(params: {
+  to: string;
+  websiteName: string;
+  totalUrls: number;
+  checkedUrls: number;
+  brokenUrls: string[];
+  fixedUrls: string[];
+  dashboardUrl?: string;
+}): Promise<boolean> {
+  const {
+    to,
+    websiteName,
+    totalUrls,
+    checkedUrls,
+    brokenUrls,
+    fixedUrls,
+    dashboardUrl,
+  } = params;
+
+  const resend = getResendClient();
+  if (!resend) {
+    logger.warn("RESEND_API_KEY not set, skipping summary email");
+    return false;
+  }
+
+  const brokenPreview =
+    brokenUrls.length > 0
+      ? `<ul>${brokenUrls.slice(0, 10).map((url) => `<li><a href="${url}" style="color:#dc2626;">${url}</a></li>`).join("")}</ul>`
+      : "<p style=\"color:#16a34a;\">No broken URLs found in this run.</p>";
+  const fixedPreview =
+    fixedUrls.length > 0
+      ? `<ul>${fixedUrls.slice(0, 10).map((url) => `<li><a href="${url}" style="color:#16a34a;">${url}</a></li>`).join("")}</ul>`
+      : "";
+
+  const subject =
+    brokenUrls.length > 0
+      ? `404 Monitor summary: ${brokenUrls.length} broken URL(s) on ${websiteName}`
+      : `404 Monitor summary: no broken URLs on ${websiteName}`;
+
+  const htmlBody = `
+    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #0f172a;">Check Summary</h2>
+      <p><strong>${websiteName}</strong> completed a monitoring run.</p>
+      <table style="width:100%; border-collapse: collapse; margin: 16px 0;">
+        <tr>
+          <td style="padding:8px; border:1px solid #e2e8f0;"><strong>Total URLs</strong></td>
+          <td style="padding:8px; border:1px solid #e2e8f0;">${totalUrls}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #e2e8f0;"><strong>Checked</strong></td>
+          <td style="padding:8px; border:1px solid #e2e8f0;">${checkedUrls}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #e2e8f0;"><strong>Broken</strong></td>
+          <td style="padding:8px; border:1px solid #e2e8f0;">${brokenUrls.length}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #e2e8f0;"><strong>Recovered</strong></td>
+          <td style="padding:8px; border:1px solid #e2e8f0;">${fixedUrls.length}</td>
+        </tr>
+      </table>
+      <h3 style="margin-top:24px;">Broken URLs in this summary</h3>
+      ${brokenPreview}
+      ${
+        fixedUrls.length > 0
+          ? `<h3 style="margin-top:24px;">Recovered URLs</h3>${fixedPreview}`
+          : ""
+      }
+      ${
+        dashboardUrl
+          ? `<p style="margin-top:24px;"><a href="${dashboardUrl}" style="display:inline-block; background:#0891b2; color:white; padding:12px 24px; text-decoration:none; border-radius:6px; font-weight:bold;">View Dashboard</a></p>`
+          : ""
+      }
+    </div>
+  `;
+
+  const textBody = [
+    "Check Summary",
+    "",
+    `${websiteName} completed a monitoring run.`,
+    `Total URLs: ${totalUrls}`,
+    `Checked: ${checkedUrls}`,
+    `Broken: ${brokenUrls.length}`,
+    `Recovered: ${fixedUrls.length}`,
+    "",
+    brokenUrls.length > 0
+      ? `Broken URLs:\n${brokenUrls.slice(0, 10).map((u) => `- ${u}`).join("\n")}`
+      : "No broken URLs found in this run.",
+    fixedUrls.length > 0
+      ? `\nRecovered URLs:\n${fixedUrls.slice(0, 10).map((u) => `- ${u}`).join("\n")}`
+      : "",
+    dashboardUrl ? `\nDashboard: ${dashboardUrl}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  try {
+    const { error } = await resend.emails.send({
+      from: emailFrom,
+      to,
+      subject,
+      html: htmlBody,
+      text: textBody,
+    });
+
+    if (error) {
+      logger.error(
+        { error, to, websiteName },
+        "Failed to send summary email via Resend",
+      );
+      return false;
+    }
+
+    logger.info({ to, websiteName }, "Sent check summary email");
+    return true;
+  } catch (err) {
+    logger.error({ err, to, websiteName }, "Exception sending summary email");
+    return false;
   }
 }
 
@@ -73,7 +214,8 @@ export async function sendPasswordResetEmail(params: {
 }): Promise<void> {
   const { to, userName, resetLink } = params;
 
-  if (!process.env.RESEND_API_KEY) {
+  const resend = getResendClient();
+  if (!resend) {
     logger.warn("RESEND_API_KEY not set, skipping password reset email");
     return;
   }

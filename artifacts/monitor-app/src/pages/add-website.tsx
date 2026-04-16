@@ -1,6 +1,5 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { useLocation } from "wouter";
 import { useAddWebsite } from "@workspace/api-client-react";
 import { Globe, Info } from "lucide-react";
@@ -39,80 +38,29 @@ import {
 import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MessageSquare, Users } from "lucide-react";
-
-export const INTERVAL_OPTIONS = [
-  { label: "Every 5 minutes", value: 5 },
-  { label: "Every 15 minutes", value: 15 },
-  { label: "Every 30 minutes", value: 30 },
-  { label: "Every 1 hour", value: 60 },
-  { label: "Every 2 hours", value: 120 },
-  { label: "Every 6 hours", value: 360 },
-  { label: "Every 12 hours", value: 720 },
-  { label: "Every 24 hours", value: 1440 },
-];
-
-export const SUMMARY_INTERVAL_OPTIONS = [
-  { label: "Only when changes detected", value: "none" },
-  { label: "Every check (realtime)", value: "realtime" },
-  { label: "Daily", value: "daily" },
-  { label: "Every 3 days", value: "3days" },
-  { label: "Every 5 days", value: "5days" },
-  { label: "Every 7 days", value: "7days" },
-  { label: "Every 14 days", value: "14days" },
-  { label: "Every 30 days", value: "30days" },
-  { label: "Custom", value: "custom" },
-];
-
-export function intervalLabel(minutes: number): string {
-  const opt = INTERVAL_OPTIONS.find((o) => o.value === minutes);
-  if (opt) return opt.label;
-  if (minutes < 60) return `Every ${minutes} min`;
-  if (minutes < 1440) return `Every ${Math.round(minutes / 60)}h`;
-  return `Every ${Math.round(minutes / 1440)}d`;
-}
-
-const formSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters."),
-  sitemapUrl: z
-    .string()
-    .url("Must be a valid URL starting with http:// or https://"),
-  alertEmail: z.string().email("Must be a valid email address."),
-  checkIntervalMinutes: z.coerce.number().int().min(5),
-  slackWebhookUrl: z.string().optional(),
-  slackAlertEnabled: z.boolean().optional().default(false),
-  slackRealtimeAlerts: z.boolean().optional().default(true),
-  teamsWebhookUrl: z.string().optional(),
-  teamsAlertEnabled: z.boolean().optional().default(false),
-  teamsRealtimeAlerts: z.boolean().optional().default(true),
-  alertSummaryInterval: z
-    .enum([
-      "none",
-      "realtime",
-      "daily",
-      "3days",
-      "5days",
-      "7days",
-      "14days",
-      "30days",
-      "custom",
-    ])
-    .optional()
-    .default("none"),
-  customSummaryDays: z.coerce.number().int().min(2).max(90).optional(),
-});
+import {
+  PROPERTY_SETUP_NOTICE_KEY,
+  SUMMARY_INTERVAL_OPTIONS,
+  INTERVAL_OPTIONS,
+  getAlertCadenceDescription,
+  intervalLabel,
+  propertyFormSchema,
+  type PropertyFormValues,
+} from "@/lib/monitoring";
 
 export default function AddWebsite() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const addWebsite = useAddWebsite();
+  const [currentStep, setCurrentStep] = useState(1);
   const [slackAlertEnabled, setSlackAlertEnabled] = useState(false);
   const [teamsAlertEnabled, setTeamsAlertEnabled] = useState(false);
   const [slackRealtimeAlerts, setSlackRealtimeAlerts] = useState(true);
   const [teamsRealtimeAlerts, setTeamsRealtimeAlerts] = useState(true);
 
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
+  const form = useForm<PropertyFormValues>({
+    resolver: zodResolver(propertyFormSchema),
     defaultValues: {
       name: "",
       sitemapUrl: "",
@@ -130,15 +78,96 @@ export default function AddWebsite() {
   });
 
   const selectedInterval = form.watch("alertSummaryInterval");
+  const checkIntervalMinutes = form.watch("checkIntervalMinutes") ?? 60;
+  const propertyName = form.watch("name") || "This property";
+  const sitemapUrl = form.watch("sitemapUrl") || "https://example.com/sitemap.xml";
+  const alertEmail = form.watch("alertEmail") || "team@example.com";
+  const enabledDestinations = [
+    "email",
+    slackAlertEnabled ? "Slack" : null,
+    teamsAlertEnabled ? "Teams" : null,
+  ].filter(Boolean) as string[];
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
+  const steps = [
+    {
+      id: 1,
+      eyebrow: "Step 1",
+      title: "Property details",
+      description:
+        "Tell us which sitemap to import and who should always receive email alerts.",
+    },
+    {
+      id: 2,
+      eyebrow: "Step 2",
+      title: "Check frequency",
+      description:
+        "Choose how often we should look for new broken pages on this property.",
+    },
+    {
+      id: 3,
+      eyebrow: "Step 3",
+      title: "Alert channels",
+      description:
+        "Add Slack or Teams when the rest of your team should see changes right away.",
+    },
+    {
+      id: 4,
+      eyebrow: "Step 4",
+      title: "Review and launch",
+      description:
+        "Confirm the property setup before we parse the sitemap and queue the first check.",
+    },
+  ] as const;
+
+  async function goToNextStep() {
+    if (currentStep === 1) {
+      const valid = await form.trigger(["name", "sitemapUrl", "alertEmail"]);
+      if (!valid) return;
+    }
+
+    if (currentStep === 2) {
+      const valid = await form.trigger(["checkIntervalMinutes"]);
+      if (!valid) return;
+    }
+
+    if (currentStep === 3) {
+      const valid = await form.trigger([
+        "slackWebhookUrl",
+        "slackAlertEnabled",
+        "slackRealtimeAlerts",
+        "teamsWebhookUrl",
+        "teamsAlertEnabled",
+        "teamsRealtimeAlerts",
+        "alertSummaryInterval",
+        "customSummaryDays",
+      ]);
+      if (!valid) return;
+    }
+
+    setCurrentStep((step) => Math.min(step + 1, 4));
+  }
+
+  function onSubmit(values: PropertyFormValues) {
     addWebsite.mutate(
       { data: values },
       {
         onSuccess: (website) => {
+          const notice = {
+            websiteId: website.id,
+            propertyName: website.name,
+            alertDestinations: enabledDestinations,
+            checkIntervalMinutes: values.checkIntervalMinutes,
+          };
+
+          sessionStorage.setItem(
+            PROPERTY_SETUP_NOTICE_KEY,
+            JSON.stringify(notice),
+          );
+
           toast({
             title: "Property added",
-            description: "We are now parsing your sitemap.",
+            description:
+              "We are parsing your sitemap and preparing the first health check.",
           });
           queryClient.invalidateQueries({ queryKey: getGetWebsitesQueryKey() });
           queryClient.invalidateQueries({
@@ -164,7 +193,8 @@ export default function AddWebsite() {
           Add Property
         </h1>
         <p className="text-muted-foreground">
-          Configure a new website to monitor for 404 errors.
+          Guided setup for sitemap monitoring, alerting, and the first health
+          check.
         </p>
       </div>
 
@@ -172,110 +202,175 @@ export default function AddWebsite() {
         <CardHeader>
           <CardTitle className="font-mono">Configuration</CardTitle>
           <CardDescription>
-            Provide the sitemap URL. We'll extract all URLs automatically.
+            Add the property, choose how often to check it, and decide where
+            alerts should land.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Property Name</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="e.g. Production Marketing Site"
-                        {...field}
-                        data-testid="input-name"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="grid gap-3 sm:grid-cols-4">
+                {steps.map((step) => (
+                  <div
+                    key={step.id}
+                    className={`rounded-lg border p-3 ${
+                      currentStep === step.id
+                        ? "border-primary bg-primary/5"
+                        : currentStep > step.id
+                          ? "border-emerald-500/30 bg-emerald-500/5"
+                          : "border-border bg-muted/20"
+                    }`}
+                  >
+                    <p className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+                      {step.eyebrow}
+                    </p>
+                    <p className="mt-1 text-sm font-semibold">{step.title}</p>
+                  </div>
+                ))}
+              </div>
 
-              <FormField
-                control={form.control}
-                name="sitemapUrl"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Sitemap URL</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="https://example.com/sitemap.xml"
-                        type="url"
-                        {...field}
-                        data-testid="input-sitemap"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Must point directly to an XML sitemap file, e.g.{" "}
-                      <code className="text-primary">/sitemap.xml</code> or{" "}
-                      <code className="text-primary">/sitemap-0.xml</code>
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="rounded-lg border border-border bg-muted/20 p-4">
+                <p className="font-mono text-xs text-muted-foreground uppercase tracking-wide">
+                  {steps[currentStep - 1].eyebrow}
+                </p>
+                <h3 className="mt-1 text-sm font-semibold">
+                  {steps[currentStep - 1].title}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {steps[currentStep - 1].description}
+                </p>
+              </div>
 
-              <FormField
-                control={form.control}
-                name="alertEmail"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Alert Email</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="eng@example.com"
-                        type="email"
-                        {...field}
-                        data-testid="input-email"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      We'll send notifications here when we detect new broken
-                      links.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {currentStep === 1 && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Property Name</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="e.g. Production Marketing Site"
+                            {...field}
+                            data-testid="input-name"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Use a name your team will recognize in alerts and dashboards.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              <FormField
-                control={form.control}
-                name="checkIntervalMinutes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Check Interval</FormLabel>
-                    <Select
-                      onValueChange={(v) => field.onChange(parseInt(v, 10))}
-                      defaultValue={String(field.value)}
-                    >
-                      <FormControl>
-                        <SelectTrigger data-testid="select-interval">
-                          <SelectValue placeholder="Select check frequency" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {INTERVAL_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={String(opt.value)}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      How often to automatically check all URLs in this
-                      website's sitemap.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  <FormField
+                    control={form.control}
+                    name="sitemapUrl"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Sitemap URL</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="https://example.com/sitemap.xml"
+                            type="url"
+                            {...field}
+                            data-testid="input-sitemap"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Use a direct XML sitemap URL, for example{" "}
+                          <code className="text-primary">/sitemap.xml</code> or{" "}
+                          <code className="text-primary">/sitemap-0.xml</code>.
+                          We&apos;ll import the URLs automatically after setup.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              <div className="border rounded-lg p-4 space-y-4 bg-muted/20">
+                  <FormField
+                    control={form.control}
+                    name="alertEmail"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Alert Email</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="eng@example.com"
+                            type="email"
+                            {...field}
+                            data-testid="input-email"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Email alerts are always on. This is the guaranteed fallback
+                          channel for new issues.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+
+              {currentStep === 2 && (
+                <>
+                  <Alert className="bg-muted/50 text-muted-foreground border-border">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>
+                      We&apos;ll re-check every imported URL{" "}
+                      {intervalLabel(checkIntervalMinutes).toLowerCase()}. Faster
+                      cadences catch launch issues sooner. Slower cadences are better
+                      for lower-change sites.
+                    </AlertDescription>
+                  </Alert>
+
+                  <FormField
+                    control={form.control}
+                    name="checkIntervalMinutes"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Check Interval</FormLabel>
+                        <Select
+                          onValueChange={(v) => field.onChange(parseInt(v, 10))}
+                          defaultValue={String(field.value)}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-interval">
+                              <SelectValue placeholder="Select check frequency" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {INTERVAL_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={String(opt.value)}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          Choose the cadence that balances response speed and alert noise.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+
+              {currentStep === 3 && (
+                <>
+                  <Alert className="bg-muted/50 text-muted-foreground border-border">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>
+                      Email is always enabled. Add Slack or Teams when the wider team
+                      needs visibility, then choose whether those channels should get
+                      immediate alerts, digests, or both.
+                    </AlertDescription>
+                  </Alert>
+
+                  <div className="border rounded-lg p-4 space-y-4 bg-muted/20">
                 <div className="flex items-center gap-2">
                   <MessageSquare className="h-5 w-5 text-primary" />
                   <h4 className="font-medium text-sm">
@@ -349,11 +444,11 @@ export default function AddWebsite() {
                       name="alertSummaryInterval"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-xs">
-                            Summary Frequency
-                          </FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
+                        <FormLabel className="text-xs">
+                          Digest Cadence
+                        </FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
                             defaultValue={field.value}
                           >
                             <FormControl>
@@ -369,6 +464,12 @@ export default function AddWebsite() {
                               ))}
                             </SelectContent>
                           </Select>
+                          <FormDescription className="text-xs">
+                            {getAlertCadenceDescription(
+                              field.value ?? "none",
+                              slackRealtimeAlerts,
+                            )}
+                          </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -420,11 +521,11 @@ export default function AddWebsite() {
                           </FormControl>
                           <div className="space-y-1 leading-none">
                             <FormLabel className="text-xs cursor-pointer">
-                              Also send realtime alerts
+                              Also send immediate alerts
                             </FormLabel>
                             <FormDescription className="text-xs">
-                              Get notified immediately when new broken/fixed
-                              URLs are detected
+                              Use this when you want Slack to light up the
+                              moment a page breaks or recovers.
                             </FormDescription>
                           </div>
                         </FormItem>
@@ -432,9 +533,9 @@ export default function AddWebsite() {
                     />
                   </>
                 )}
-              </div>
+                  </div>
 
-              <div className="border rounded-lg p-4 space-y-4 bg-muted/20">
+                  <div className="border rounded-lg p-4 space-y-4 bg-muted/20">
                 <div className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-[#0078d4]" />
                   <h4 className="font-medium text-sm">
@@ -508,8 +609,8 @@ export default function AddWebsite() {
                       name="alertSummaryInterval"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-xs">
-                            Summary Frequency
+                        <FormLabel className="text-xs">
+                            Digest Cadence
                           </FormLabel>
                           <Select
                             onValueChange={field.onChange}
@@ -528,6 +629,12 @@ export default function AddWebsite() {
                               ))}
                             </SelectContent>
                           </Select>
+                          <FormDescription className="text-xs">
+                            {getAlertCadenceDescription(
+                              field.value ?? "none",
+                              teamsRealtimeAlerts,
+                            )}
+                          </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -579,11 +686,11 @@ export default function AddWebsite() {
                           </FormControl>
                           <div className="space-y-1 leading-none">
                             <FormLabel className="text-xs cursor-pointer">
-                              Also send realtime alerts
+                              Also send immediate alerts
                             </FormLabel>
                             <FormDescription className="text-xs">
-                              Get notified immediately when new broken/fixed
-                              URLs are detected
+                              Turn this on when your team needs Teams updates
+                              as soon as a URL changes status.
                             </FormDescription>
                           </div>
                         </FormItem>
@@ -591,32 +698,81 @@ export default function AddWebsite() {
                     />
                   </>
                 )}
-              </div>
+                  </div>
+                </>
+              )}
 
-              <Alert className="bg-muted/50 text-muted-foreground border-border">
-                <Info className="h-4 w-4" />
-                <AlertDescription>
-                  Your sitemap will be parsed immediately after adding.
-                  Automated checks run on the schedule you choose above.
-                </AlertDescription>
-              </Alert>
+              {currentStep === 4 && (
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card className="bg-muted/20">
+                      <CardContent className="p-4 space-y-2">
+                        <p className="font-mono text-xs text-muted-foreground uppercase">
+                          Property
+                        </p>
+                        <p className="font-semibold">{propertyName}</p>
+                        <p className="text-sm text-muted-foreground break-all">
+                          {sitemapUrl}
+                        </p>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-muted/20">
+                      <CardContent className="p-4 space-y-2">
+                        <p className="font-mono text-xs text-muted-foreground uppercase">
+                          Monitoring plan
+                        </p>
+                        <p className="font-semibold">
+                          {intervalLabel(checkIntervalMinutes)}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Alerts to {enabledDestinations.join(", ")}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
 
-              <div className="flex justify-end gap-4">
+                  <Alert className="bg-muted/50 text-muted-foreground border-border">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>
+                      After you click Add Property, we&apos;ll parse the sitemap,
+                      import the URLs we find, show you how many pages were discovered,
+                      and queue the first scheduled check. Primary email alerts will go
+                      to {alertEmail}.
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              )}
+
+              <div className="flex justify-between gap-4">
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setLocation("/dashboard")}
-                  data-testid="button-cancel"
+                  onClick={() =>
+                    currentStep === 1
+                      ? setLocation("/dashboard")
+                      : setCurrentStep((step) => Math.max(step - 1, 1))
+                  }
+                  data-testid={currentStep === 1 ? "button-cancel" : "button-back"}
                 >
-                  Cancel
+                  {currentStep === 1 ? "Cancel" : "Back"}
                 </Button>
-                <Button
-                  type="submit"
-                  disabled={addWebsite.isPending}
-                  data-testid="button-submit"
-                >
-                  {addWebsite.isPending ? "Adding..." : "Add Property"}
-                </Button>
+                {currentStep < 4 ? (
+                  <Button
+                    type="button"
+                    onClick={goToNextStep}
+                    data-testid="button-next-step"
+                  >
+                    Continue
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    disabled={addWebsite.isPending}
+                    data-testid="button-submit"
+                  >
+                    {addWebsite.isPending ? "Adding..." : "Add Property"}
+                  </Button>
+                )}
               </div>
             </form>
           </Form>

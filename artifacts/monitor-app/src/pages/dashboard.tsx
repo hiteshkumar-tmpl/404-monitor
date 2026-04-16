@@ -20,7 +20,7 @@ import {
   Trash2,
   RefreshCw,
 } from "lucide-react";
-import { intervalLabel } from "@/pages/add-website";
+import { intervalLabel } from "@/lib/monitoring";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -131,7 +131,8 @@ export default function Dashboard() {
           System Status
         </h1>
         <p className="text-muted-foreground">
-          Overview of all monitored properties and their current health.
+          Review monitored properties, recent health checks, and where broken-link
+          risk is building across your sites.
         </p>
       </div>
 
@@ -350,12 +351,12 @@ export default function Dashboard() {
             <CardContent className="flex flex-col items-center justify-center p-12 text-center">
               <Globe className="w-12 h-12 text-muted-foreground mb-4" />
               <h3 className="text-lg font-bold mb-2">
-                No properties monitored
+                No properties monitored yet
               </h3>
               <p className="text-muted-foreground mb-6 max-w-sm">
-                Add your first website by providing a sitemap URL. We'll
-                automatically parse it and check for 404 errors on the schedule
-                you choose.
+                Start with the main XML sitemap for one site. We&apos;ll import the
+                discovered URLs, show you how many pages were found, and schedule
+                health checks on the cadence you choose.
               </p>
               <Link href="/websites/add">
                 <Button data-testid="button-add-first">Add Property</Button>

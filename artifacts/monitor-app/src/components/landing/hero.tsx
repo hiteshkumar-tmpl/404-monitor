@@ -13,7 +13,7 @@ export function Hero() {
         <div className="max-w-4xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-sky-50 border border-sky-200 text-sky-700 text-sm font-medium mb-8">
             <Zap className="w-4 h-4" />
-            <span>Real-time 404 monitoring for modern teams</span>
+            <span>Website health monitoring for marketing and SEO teams</span>
           </div>
 
           <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold text-slate-900 tracking-tight mb-6">
@@ -25,8 +25,9 @@ export function Hero() {
           </h1>
 
           <p className="text-xl text-slate-600 mb-10 max-w-2xl mx-auto leading-relaxed">
-            404 Monitor crawls your sitemap, detects broken pages in real-time,
-            and alerts you before they hurt your SEO or user experience.
+            404 Monitor imports URLs from your sitemap, checks them on a schedule
+            you control, and alerts your team in email, Slack, or Teams before
+            broken pages hurt campaigns or SEO.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
@@ -35,7 +36,7 @@ export function Hero() {
                 size="lg"
                 className="bg-sky-600 hover:bg-sky-700 text-white px-8 py-6 text-lg font-semibold rounded-xl shadow-lg shadow-sky-500/25"
               >
-                Start Monitoring Free
+                Open Dashboard
                 <ArrowRight className="ml-2 w-5 h-5" />
               </Button>
             </Link>
@@ -44,15 +45,15 @@ export function Hero() {
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-slate-500">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-              <span>Free for personal projects</span>
+              <span>Configurable check intervals</span>
             </div>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-              <span>No credit card required</span>
+              <span>Email, Slack, and Teams alerts</span>
             </div>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-              <span>Setup in 30 seconds</span>
+              <span>Trend history and admin visibility</span>
             </div>
           </div>
         </div>

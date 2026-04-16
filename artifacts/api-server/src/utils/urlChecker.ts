@@ -7,16 +7,25 @@ export interface UrlCheckResult {
   errorMessage: string | null;
 }
 
+const DEFAULT_TIMEOUT_MS = Number(process.env.URL_CHECK_TIMEOUT_MS || 5000);
+const DEFAULT_MAX_REDIRECTS = Number(process.env.URL_CHECK_MAX_REDIRECTS || 5);
+const DEFAULT_RETRIES = Number(process.env.URL_CHECK_RETRIES || 2);
+const MIN_CONCURRENCY = Number(process.env.URL_CHECK_MIN_CONCURRENCY || 5);
+const MAX_CONCURRENCY = Number(process.env.URL_CHECK_MAX_CONCURRENCY || 20);
+
 /**
  * Check a single URL and return its HTTP status code.
  * Retries up to 2 times on failure with exponential backoff.
  */
-async function checkUrl(url: string, retries = 2): Promise<UrlCheckResult> {
+async function checkUrl(
+  url: string,
+  retries = DEFAULT_RETRIES,
+): Promise<UrlCheckResult> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const response = await axios.get(url, {
-        timeout: 5000,
-        maxRedirects: 5,
+        timeout: DEFAULT_TIMEOUT_MS,
+        maxRedirects: DEFAULT_MAX_REDIRECTS,
         validateStatus: () => true, // Don't throw on non-2xx
         headers: { "User-Agent": "404Monitor/1.0" },
       });
@@ -44,18 +53,66 @@ async function checkUrl(url: string, retries = 2): Promise<UrlCheckResult> {
  */
 export async function checkUrlsBatch(
   urls: string[],
-  concurrency = 5
+  concurrency?: number,
 ): Promise<UrlCheckResult[]> {
-  const results: UrlCheckResult[] = [];
+  const effectiveConcurrency = resolveConcurrency(urls.length, concurrency);
+  const results = new Array<UrlCheckResult>(urls.length);
+  let nextIndex = 0;
 
-  // Process in chunks of `concurrency`
-  for (let i = 0; i < urls.length; i += concurrency) {
-    const chunk = urls.slice(i, i + concurrency);
-    const chunkResults = await Promise.all(chunk.map((url) => checkUrl(url)));
-    results.push(...chunkResults);
-  }
+  const workers = Array.from({ length: effectiveConcurrency }, async () => {
+    while (true) {
+      const currentIndex = nextIndex++;
+      if (currentIndex >= urls.length) return;
+      results[currentIndex] = await checkUrl(urls[currentIndex]);
+    }
+  });
+
+  await Promise.all(workers);
+
+  logger.info(
+    { totalUrls: urls.length, concurrency: effectiveConcurrency },
+    "Completed URL check batch",
+  );
 
   return results;
+}
+
+function resolveConcurrency(totalUrls: number, explicit?: number): number {
+  if (explicit && explicit > 0) {
+    return Math.max(MIN_CONCURRENCY, Math.min(MAX_CONCURRENCY, explicit));
+  }
+
+  if (totalUrls >= 2000) return MAX_CONCURRENCY;
+  if (totalUrls >= 1000) return Math.min(MAX_CONCURRENCY, 15);
+  if (totalUrls >= 400) return Math.min(MAX_CONCURRENCY, 10);
+  if (totalUrls >= 100) return Math.min(MAX_CONCURRENCY, 8);
+  return MIN_CONCURRENCY;
+}
+
+export function getRecommendedConcurrency(totalUrls: number): number {
+  return resolveConcurrency(totalUrls);
+}
+
+export function getUrlCheckerConfig() {
+  return {
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    retries: DEFAULT_RETRIES,
+    maxRedirects: DEFAULT_MAX_REDIRECTS,
+    minConcurrency: MIN_CONCURRENCY,
+    maxConcurrency: MAX_CONCURRENCY,
+  };
+}
+
+export async function runInBatches<T>(
+  items: T[],
+  batchSize: number,
+  handler: (item: T) => Promise<void>,
+): Promise<void> {
+  const safeBatchSize = Math.max(1, batchSize);
+  for (let i = 0; i < items.length; i += safeBatchSize) {
+    const chunk = items.slice(i, i + safeBatchSize);
+    await Promise.all(chunk.map(handler));
+  }
 }
 
 function sleep(ms: number): Promise<void> {

@@ -3,30 +3,30 @@ import { Rocket, Building2, FileText, ShoppingCart } from "lucide-react";
 const audiences = [
   {
     icon: Rocket,
-    title: "For Startups",
+    title: "Marketing Teams",
     description:
-      "Move fast without breaking things. Catch issues before they become embarrassing tweets.",
+      "Watch campaign, landing-page, and blog URLs without waiting for broken links to show up in analytics.",
     color: "sky",
   },
   {
     icon: Building2,
-    title: "For Agencies",
+    title: "Agencies",
     description:
-      "Manage multiple client websites from one dashboard. White-label reports impress executives.",
+      "Monitor multiple client properties, route alerts to the right people, and keep oversight in one place.",
     color: "violet",
   },
   {
     icon: FileText,
-    title: "For Bloggers",
+    title: "SEO and Content Ops",
     description:
-      "Your readers deserve better than dead ends. Keep every link working, always.",
+      "Spot broken pages quickly, track health trends over time, and reduce the SEO risk of dead-end URLs.",
     color: "emerald",
   },
   {
     icon: ShoppingCart,
-    title: "For E-Commerce",
+    title: "Admin Owners",
     description:
-      "Dropped products, removed pages, expired promotions. Never lose a sale to a 404.",
+      "Give multiple users access, manage monitored properties centrally, and keep visibility across teams.",
     color: "amber",
   },
 ];
@@ -44,11 +44,11 @@ export function Audiences() {
       <div className="container mx-auto px-4">
         <div className="text-center max-w-2xl mx-auto mb-16">
           <h2 className="text-4xl font-bold text-slate-900 mb-4">
-            Built for everyone
+            Built for teams that own website health
           </h2>
           <p className="text-lg text-slate-600">
-            Whether you're a solo blogger or managing hundreds of client sites,
-            we've got you covered.
+            The current product is strongest for marketing, SEO, agency, and
+            admin-led workflows where broken pages need quick visibility.
           </p>
         </div>
 

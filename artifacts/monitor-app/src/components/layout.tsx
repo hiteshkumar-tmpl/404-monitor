@@ -37,7 +37,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { name: "Add Website", href: "/websites/add", icon: Plus },
+    { name: "Add Property", href: "/websites/add", icon: Plus },
     ...(isAdmin
       ? [
           { name: "Admin", href: "/admin", icon: Shield },

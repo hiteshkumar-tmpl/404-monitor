@@ -37,6 +37,6 @@ app.listen(port, async (err) => {
   // Seed admin user on startup
   await seedAdminUser();
 
-  // Start the hourly cron scheduler after server is up
+  // Start the per-site interval scheduler after the server is up.
   startScheduler();
 });

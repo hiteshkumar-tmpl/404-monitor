@@ -22,11 +22,7 @@ export interface SlackAlertPayload {
 interface SlackBlock {
   type: string;
   text?: { type: string; text: string; emoji?: boolean };
-  elements?: Array<{
-    type: string;
-    text?: { type: string; text: string };
-    url?: string;
-  }>;
+  elements?: Array<Record<string, unknown>>;
 }
 
 function formatBrokenUrlsList(urls: string[]): string {

@@ -11,33 +11,47 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Activity, AlertCircle } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { Activity, AlertCircle, CheckCircle2 } from "lucide-react";
 
-export default function Login() {
+export default function Signup() {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const { login } = useAuth();
-  const { toast } = useToast();
+  const { signup } = useAuth();
   const [, setLocation] = useLocation();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (name.trim().length < 2) {
+      setError("Name must be at least 2 characters");
+      return;
+    }
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      await login(email, password);
-      toast({
-        title: "Welcome back",
-        description: "You have successfully logged in.",
-      });
+      await signup(name.trim(), email, password);
       setLocation("/dashboard");
     } catch (err: unknown) {
       const errorMessage =
-        err instanceof Error ? err.message : "Invalid email or password";
+        err instanceof Error
+          ? err.message
+          : "Unable to create your account right now";
       setError(errorMessage);
     } finally {
       setIsLoading(false);
@@ -55,15 +69,16 @@ export default function Login() {
             404_MONITOR
           </h1>
           <p className="text-sm text-muted-foreground mt-2 font-mono">
-            Sign in to access your dashboard
+            Create your account and start monitoring your first property
           </p>
         </div>
 
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="font-mono text-xl">AUTHENTICATE</CardTitle>
+            <CardTitle className="font-mono text-xl">CREATE ACCOUNT</CardTitle>
             <CardDescription className="font-mono text-xs text-muted-foreground">
-              Enter your credentials to continue
+              New accounts are created as standard users. You&apos;ll be signed in
+              immediately after signup.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -75,6 +90,41 @@ export default function Login() {
                 </div>
               )}
 
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  <span className="font-medium text-foreground">
+                    What happens after signup
+                  </span>
+                </div>
+                <p>
+                  You&apos;ll land in the dashboard as a regular user and can add
+                  your first monitored property right away.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label
+                  htmlFor="name"
+                  className="font-mono text-xs text-muted-foreground uppercase"
+                >
+                  Full Name
+                </Label>
+                <Input
+                  id="name"
+                  type="text"
+                  placeholder="Jane Smith"
+                  value={name}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                    setName(e.target.value)
+                  }
+                  required
+                  className="font-mono"
+                  autoComplete="name"
+                  data-testid="input-signup-name"
+                />
+              </div>
+
               <div className="space-y-2">
                 <Label
                   htmlFor="email"
@@ -85,7 +135,7 @@ export default function Login() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="admin@example.com"
+                  placeholder="jane@example.com"
                   value={email}
                   onChange={(e: ChangeEvent<HTMLInputElement>) =>
                     setEmail(e.target.value)
@@ -93,7 +143,7 @@ export default function Login() {
                   required
                   className="font-mono"
                   autoComplete="email"
-                  data-testid="input-email"
+                  data-testid="input-signup-email"
                 />
               </div>
 
@@ -107,15 +157,37 @@ export default function Login() {
                 <Input
                   id="password"
                   type="password"
-                  placeholder="Enter your password"
+                  placeholder="At least 8 characters"
                   value={password}
                   onChange={(e: ChangeEvent<HTMLInputElement>) =>
                     setPassword(e.target.value)
                   }
                   required
                   className="font-mono"
-                  autoComplete="current-password"
-                  data-testid="input-password"
+                  autoComplete="new-password"
+                  data-testid="input-signup-password"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label
+                  htmlFor="confirmPassword"
+                  className="font-mono text-xs text-muted-foreground uppercase"
+                >
+                  Confirm Password
+                </Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  placeholder="Repeat your password"
+                  value={confirmPassword}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                    setConfirmPassword(e.target.value)
+                  }
+                  required
+                  className="font-mono"
+                  autoComplete="new-password"
+                  data-testid="input-signup-confirm-password"
                 />
               </div>
 
@@ -123,28 +195,18 @@ export default function Login() {
                 type="submit"
                 className="w-full font-mono font-bold"
                 disabled={isLoading}
-                data-testid="button-submit"
+                data-testid="button-signup-submit"
               >
-                {isLoading ? "AUTHENTICATING..." : "SIGN IN"}
+                {isLoading ? "CREATING ACCOUNT..." : "CREATE ACCOUNT"}
               </Button>
 
-              <div className="text-center">
+              <div className="text-center space-y-2">
                 <button
                   type="button"
-                  onClick={() => setLocation("/forgot-password")}
+                  onClick={() => setLocation("/login")}
                   className="text-xs text-muted-foreground hover:text-primary font-mono underline"
                 >
-                  Forgot Password?
-                </button>
-              </div>
-
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={() => setLocation("/signup")}
-                  className="text-xs text-muted-foreground hover:text-primary font-mono underline"
-                >
-                  Need an account? Create one
+                  Already have an account? Sign in
                 </button>
               </div>
             </form>

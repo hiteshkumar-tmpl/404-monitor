@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useLogin,
   useLogout,
+  useSignup,
   useGetCurrentUser,
   getGetCurrentUserQueryKey,
 } from "@workspace/api-client-react";
@@ -14,6 +15,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   login: (email: string, password: string) => Promise<void>;
+  signup: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -25,6 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
 
   const loginMutation = useLogin();
+  const signupMutation = useSignup();
   const logoutMutation = useLogout();
 
   const { data, isLoading: isQueryLoading, error } = useGetCurrentUser({
@@ -59,12 +62,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
   };
 
+  const signup = async (name: string, email: string, password: string) => {
+    const result = await signupMutation.mutateAsync({
+      data: { name, email, password },
+    });
+    setUser(result);
+    queryClient.invalidateQueries({ queryKey: getGetCurrentUserQueryKey() });
+    queryClient.invalidateQueries({ queryKey: ["getWebsites"] });
+    queryClient.invalidateQueries({ queryKey: ["getDashboardSummary"] });
+  };
+
   const value: AuthContextType = {
     user,
     isLoading,
     isAuthenticated: !!user,
     isAdmin: user?.role === "admin",
     login,
+    signup,
     logout,
   };
 

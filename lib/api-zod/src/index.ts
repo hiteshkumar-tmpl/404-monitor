@@ -1,2 +1,15 @@
 export * from "./generated/api";
-export * from "./generated/types";
+export type { AddSitemapRequest } from "./generated/types/addSitemapRequest";
+export type { AddWebsiteRequest } from "./generated/types/addWebsiteRequest";
+export type { CheckResult } from "./generated/types/checkResult";
+export type { DashboardSummary } from "./generated/types/dashboardSummary";
+export type { ErrorResponse } from "./generated/types/errorResponse";
+export type { GetWebsiteUrlsParams as GetWebsiteUrlsQueryParams } from "./generated/types/getWebsiteUrlsParams";
+export type { GetWebsiteUrlsStatus } from "./generated/types/getWebsiteUrlsStatus";
+export type { HealthStatus } from "./generated/types/healthStatus";
+export type { MonitoredUrl } from "./generated/types/monitoredUrl";
+export type { SuccessResponse } from "./generated/types/successResponse";
+export type { UpdateWebsiteRequest } from "./generated/types/updateWebsiteRequest";
+export type { Website } from "./generated/types/website";
+export type { WebsiteSitemap } from "./generated/types/websiteSitemap";
+export type { WebsiteStatus } from "./generated/types/websiteStatus";
