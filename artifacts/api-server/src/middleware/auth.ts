@@ -6,6 +6,10 @@ const JWT_SECRET =
   process.env.JWT_SECRET || "dev-secret-change-in-production-min-32-chars";
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "24h";
 const COOKIE_NAME = "auth_token";
+const APP_URL = process.env.APP_URL || "";
+const COOKIE_SECURE =
+  process.env.COOKIE_SECURE === "true" ||
+  (process.env.NODE_ENV === "production" && APP_URL.startsWith("https://"));
 
 export interface JwtPayload {
   userId: number;
@@ -36,7 +40,7 @@ export function verifyToken(token: string): JwtPayload | null {
 export function setAuthCookie(res: Response, token: string): void {
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: COOKIE_SECURE,
     sameSite: "lax",
     maxAge: 24 * 60 * 60 * 1000,
     path: "/",
@@ -46,7 +50,7 @@ export function setAuthCookie(res: Response, token: string): void {
 export function clearAuthCookie(res: Response): void {
   res.clearCookie(COOKIE_NAME, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: COOKIE_SECURE,
     sameSite: "lax",
     path: "/",
   });
