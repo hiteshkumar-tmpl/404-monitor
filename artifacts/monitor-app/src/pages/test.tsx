@@ -4,8 +4,7 @@ import { Link } from "wouter";
 import { Home, Server, CheckCircle, XCircle, Globe } from "lucide-react";
 
 export default function TestPage() {
-  const backendUrl =
-    "https://workspaceapi-server-production-b33f.up.railway.app";
+  const backendUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">

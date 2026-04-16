@@ -3,9 +3,9 @@ import App from "./App";
 import "./index.css";
 import { setBaseUrl } from "@workspace/api-client-react";
 
-// Set API base URL for production
-// In development, Vite proxy handles this via vite.config.ts
-if (import.meta.env.VITE_API_URL) {
+// Keep relative /api calls in development so Vite proxy handles
+// requests and browser cookies stay same-origin.
+if (import.meta.env.PROD && import.meta.env.VITE_API_URL) {
   setBaseUrl(import.meta.env.VITE_API_URL);
 }
 

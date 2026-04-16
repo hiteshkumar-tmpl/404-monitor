@@ -43,10 +43,13 @@ import { useState } from "react";
 
 export default function Dashboard() {
   const { data: websites, isLoading: loadingWebsites } = useGetWebsites({
-    query: { refetchInterval: 30000 },
+    query: { refetchInterval: 30000, queryKey: getGetWebsitesQueryKey() },
   });
   const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary({
-    query: { refetchInterval: 30000 },
+    query: {
+      refetchInterval: 30000,
+      queryKey: getGetDashboardSummaryQueryKey(),
+    },
   });
   const deleteWebsite = useDeleteWebsite();
   const queryClient = useQueryClient();
@@ -60,7 +63,12 @@ export default function Dashboard() {
   const [trendDays, setTrendDays] = useState(7);
   const { data: trends, isLoading: loadingTrends } = useGetDashboardTrends(
     { days: trendDays },
-    { query: { refetchInterval: 300000 } },
+    {
+      query: {
+        refetchInterval: 300000,
+        queryKey: getGetDashboardTrendsQueryKey(),
+      },
+    },
   );
 
   const handleDelete = (id: number) => {
