@@ -41,6 +41,15 @@ export default function AdminDashboard() {
         );
       case WebsiteStatus.error:
         return <Badge variant="destructive">Error</Badge>;
+      case WebsiteStatus.paused:
+        return (
+          <Badge
+            className="bg-slate-500/10 text-slate-300 hover:bg-slate-500/20 border-slate-400/20"
+            variant="outline"
+          >
+            Paused
+          </Badge>
+        );
       case WebsiteStatus.checking:
         return (
           <Badge

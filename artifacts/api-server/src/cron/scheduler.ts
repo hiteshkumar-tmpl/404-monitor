@@ -13,6 +13,10 @@ export function startScheduler(): void {
     const websites = await db.select().from(websitesTable);
 
     for (const website of websites) {
+      if (website.status === "paused") {
+        continue;
+      }
+
       const intervalMs = website.checkIntervalMinutes * 60 * 1000;
       const lastChecked = website.lastCheckedAt ? new Date(website.lastCheckedAt).getTime() : 0;
       const due = now.getTime() - lastChecked >= intervalMs;

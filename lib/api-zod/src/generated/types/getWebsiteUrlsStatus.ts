@@ -12,5 +12,7 @@ export type GetWebsiteUrlsStatus =
 export const GetWebsiteUrlsStatus = {
   all: "all",
   broken: "broken",
+  not_found: "not_found",
+  server_error: "server_error",
   ok: "ok",
 } as const;

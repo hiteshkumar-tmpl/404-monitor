@@ -651,11 +651,99 @@ router.post("/websites/:id/check", async (req, res) => {
       return;
     }
 
+    if (website.status === "paused") {
+      res.status(409).json({ error: "Website monitoring is paused" });
+      return;
+    }
+
     const result = await checkWebsite(id);
     res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to trigger manual check");
     res.status(500).json({ error: "Failed to run check" });
+  }
+});
+
+router.post("/websites/:id/pause", async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid website ID" });
+    return;
+  }
+
+  try {
+    const [website] = await db
+      .select()
+      .from(websitesTable)
+      .where(eq(websitesTable.id, id));
+
+    if (!website) {
+      res.status(404).json({ error: "Website not found" });
+      return;
+    }
+
+    if (req.user?.role !== "admin" && website.userId !== req.user?.userId) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+
+    const [updated] = await db
+      .update(websitesTable)
+      .set({ status: "paused" })
+      .where(eq(websitesTable.id, id))
+      .returning();
+
+    res.json({
+      success: true,
+      message: "Monitoring paused",
+      website: formatWebsite(updated),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to pause website monitoring");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/websites/:id/resume", async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid website ID" });
+    return;
+  }
+
+  try {
+    const [website] = await db
+      .select()
+      .from(websitesTable)
+      .where(eq(websitesTable.id, id));
+
+    if (!website) {
+      res.status(404).json({ error: "Website not found" });
+      return;
+    }
+
+    if (req.user?.role !== "admin" && website.userId !== req.user?.userId) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+
+    const nextStatus =
+      (website.trackedIssueUrls ?? website.brokenUrls) > 0 ? "error" : "ok";
+
+    const [updated] = await db
+      .update(websitesTable)
+      .set({ status: nextStatus })
+      .where(eq(websitesTable.id, id))
+      .returning();
+
+    res.json({
+      success: true,
+      message: "Monitoring resumed",
+      website: formatWebsite(updated),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to resume website monitoring");
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -1297,6 +1385,11 @@ async function parseSitemapAndStore(
   log: { info?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void },
 ): Promise<void> {
   try {
+    const [currentWebsite] = await db
+      .select({ status: websitesTable.status })
+      .from(websitesTable)
+      .where(eq(websitesTable.id, websiteId));
+
     const urls = await parseSitemap(sitemapUrl);
 
     if (urls.length > 0) {
@@ -1323,12 +1416,21 @@ async function parseSitemapAndStore(
 
     await db
       .update(websitesTable)
-      .set({ totalUrls: urls.length, status: "ok", trackedIssueUrls: 0 })
+      .set({
+        totalUrls: urls.length,
+        status: currentWebsite?.status === "paused" ? "paused" : "ok",
+        trackedIssueUrls: 0,
+      })
       .where(eq(websitesTable.id, websiteId));
   } catch (err) {
+    const [currentWebsite] = await db
+      .select({ status: websitesTable.status })
+      .from(websitesTable)
+      .where(eq(websitesTable.id, websiteId));
+
     await db
       .update(websitesTable)
-      .set({ status: "error" })
+      .set({ status: currentWebsite?.status === "paused" ? "paused" : "error" })
       .where(eq(websitesTable.id, websiteId));
     throw err;
   }

@@ -61,12 +61,6 @@ const DEFAULT_DASHBOARD_BASE_URL = "http://136.113.130.29:5173";
 export async function checkWebsite(
   websiteId: number,
 ): Promise<CheckWebsiteResult> {
-  // Mark website as "checking"
-  await db
-    .update(websitesTable)
-    .set({ status: "checking" })
-    .where(eq(websitesTable.id, websiteId));
-
   const [website] = await db
     .select()
     .from(websitesTable)
@@ -75,6 +69,15 @@ export async function checkWebsite(
   if (!website) {
     throw new Error(`Website ${websiteId} not found`);
   }
+
+  if (website.status === "paused") {
+    throw new Error("Website monitoring is paused");
+  }
+
+  await db
+    .update(websitesTable)
+    .set({ status: "checking" })
+    .where(eq(websitesTable.id, websiteId));
 
   logger.info({ websiteId, name: website.name }, "Starting website check");
 
@@ -257,6 +260,10 @@ export async function checkWebsite(
     const trackedIssueCount = brokenCount + serverErrorCount;
     const currentNotFoundUrls = notFoundResults.map((r) => r.url);
     const currentServerErrorUrls = serverErrorResults.map((r) => r.url);
+    const [currentWebsite] = await db
+      .select({ status: websitesTable.status })
+      .from(websitesTable)
+      .where(eq(websitesTable.id, websiteId));
 
     await db
       .update(websitesTable)
@@ -266,7 +273,12 @@ export async function checkWebsite(
         notFoundUrls: brokenCount,
         serverErrorUrls: serverErrorCount,
         trackedIssueUrls: trackedIssueCount,
-        status: trackedIssueCount > 0 ? "error" : "ok",
+        status:
+          currentWebsite?.status === "paused"
+            ? "paused"
+            : trackedIssueCount > 0
+              ? "error"
+              : "ok",
         lastCheckedAt: new Date(),
       })
       .where(eq(websitesTable.id, websiteId));

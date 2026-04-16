@@ -106,6 +106,7 @@ export const WebsiteStatus = {
   checking: "checking",
   ok: "ok",
   error: "error",
+  paused: "paused",
 } as const;
 
 export type WebsiteAlertSummaryInterval =
@@ -133,6 +134,10 @@ export interface Website {
   notFoundUrls: number;
   serverErrorUrls: number;
   trackedIssueUrls: number;
+  ownerName?: string | null;
+  priority?: string;
+  tags?: string[];
+  notes?: string | null;
   checkIntervalMinutes: number;
   lastCheckedAt?: string | null;
   createdAt: string;
@@ -167,6 +172,10 @@ export const UpdateWebsiteRequestAlertSummaryInterval = {
 
 export interface UpdateWebsiteRequest {
   name?: string;
+  ownerName?: string | null;
+  priority?: "low" | "medium" | "high";
+  tags?: string | null;
+  notes?: string | null;
   sitemapUrl?: string;
   alertEmail?: string;
   checkIntervalMinutes?: number;
@@ -208,6 +217,10 @@ export const AddWebsiteRequestAlertSummaryInterval = {
 
 export interface AddWebsiteRequest {
   name: string;
+  ownerName?: string;
+  priority?: "low" | "medium" | "high";
+  tags?: string;
+  notes?: string;
   sitemapUrl: string;
   alertEmail: string;
   checkIntervalMinutes?: number;
@@ -349,6 +362,8 @@ export type GetWebsiteUrlsStatus =
 export const GetWebsiteUrlsStatus = {
   all: "all",
   broken: "broken",
+  not_found: "not_found",
+  server_error: "server_error",
   ok: "ok",
 } as const;
 

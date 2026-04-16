@@ -24,7 +24,7 @@ export const websitesTable = pgTable("websites", {
   priority: text("priority").notNull().default("medium"),
   tags: text("tags"),
   notes: text("notes"),
-  status: text("status").notNull().default("pending"), // pending | checking | ok | error
+  status: text("status").notNull().default("pending"), // pending | checking | ok | error | paused
   checkIntervalMinutes: integer("check_interval_minutes").notNull().default(60),
   lastCheckedAt: timestamp("last_checked_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

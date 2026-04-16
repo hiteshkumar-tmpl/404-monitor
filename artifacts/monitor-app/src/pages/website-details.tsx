@@ -29,7 +29,9 @@ import {
   Clock,
   ExternalLink,
   Globe,
+  Pause,
   Pencil,
+  Play,
   Plus,
   RefreshCw,
   Search,
@@ -511,6 +513,15 @@ export default function WebsiteDetails() {
         );
       case WebsiteStatus.error:
         return <Badge variant="destructive">Error</Badge>;
+      case WebsiteStatus.paused:
+        return (
+          <Badge
+            className="border-slate-400/20 bg-slate-500/10 text-slate-300 hover:bg-slate-500/20"
+            variant="outline"
+          >
+            <Pause className="mr-1 h-3 w-3" /> Paused
+          </Badge>
+        );
       case WebsiteStatus.checking:
         return (
           <Badge
@@ -707,6 +718,34 @@ export default function WebsiteDetails() {
   ];
   const isChecking =
     triggerCheck.isPending || website.status === WebsiteStatus.checking;
+  const isPaused = website.status === WebsiteStatus.paused;
+  const togglePause = async (shouldPause: boolean) => {
+    try {
+      await customFetch(`/api/websites/${id}/${shouldPause ? "pause" : "resume"}`, {
+        method: "POST",
+      });
+      toast({
+        title: shouldPause ? "Monitoring paused" : "Monitoring resumed",
+        description: shouldPause
+          ? "Scheduled checks are paused for this property."
+          : "This property will be checked on its normal cadence again.",
+      });
+      queryClient.invalidateQueries({
+        queryKey: getGetWebsiteQueryKey(id),
+      });
+      queryClient.invalidateQueries({
+        queryKey: getGetDashboardSummaryQueryKey(),
+      });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-insights"] });
+      queryClient.invalidateQueries({ queryKey: getGetWebsitesQueryKey() });
+    } catch {
+      toast({
+        title: shouldPause ? "Pause failed" : "Resume failed",
+        description: "Could not update monitoring state.",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <div className="space-y-6 pb-20">
@@ -740,7 +779,7 @@ export default function WebsiteDetails() {
             </Button>
             <Button
               onClick={handleRunCheck}
-              disabled={isChecking}
+              disabled={isChecking || isPaused}
               data-testid="button-run-check"
               className="font-mono font-bold"
             >
@@ -748,6 +787,18 @@ export default function WebsiteDetails() {
                 className={`mr-2 h-4 w-4 ${isChecking ? "animate-spin" : ""}`}
               />
               {isChecking ? "RUNNING..." : "RUN CHECK NOW"}
+            </Button>
+            <Button
+              onClick={() => togglePause(!isPaused)}
+              variant="outline"
+              className="font-mono text-xs"
+            >
+              {isPaused ? (
+                <Play className="mr-1.5 h-3 w-3" />
+              ) : (
+                <Pause className="mr-1.5 h-3 w-3" />
+              )}
+              {isPaused ? "RESUME MONITORING" : "PAUSE MONITORING"}
             </Button>
             <Button
               onClick={handleRefreshSitemap}
@@ -809,6 +860,16 @@ export default function WebsiteDetails() {
           </AlertDescription>
         </Alert>
       )}
+
+      {isPaused ? (
+        <Alert className="border-slate-400/30 bg-slate-500/5">
+          <Pause className="h-4 w-4 text-slate-300" />
+          <AlertTitle className="font-mono">Monitoring is paused</AlertTitle>
+          <AlertDescription className="mt-1 text-muted-foreground">
+            Scheduled checks are disabled for this property until you resume monitoring.
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {setupNotice && (
         <Alert className="border-primary/30 bg-primary/5">

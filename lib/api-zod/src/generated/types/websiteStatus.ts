@@ -13,4 +13,5 @@ export const WebsiteStatus = {
   checking: "checking",
   ok: "ok",
   error: "error",
+  paused: "paused",
 } as const;

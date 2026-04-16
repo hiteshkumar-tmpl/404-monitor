@@ -50,7 +50,7 @@ export function TrendChart({
       date: item.date,
       broken: item.totalBroken,
       serverError: item.totalServerErrors ?? 0,
-      formattedDate: formatDate(item.date, data.days),
+      formattedDate: formatDate(item.date ?? "", data.days),
     })) ?? [];
 
   const chartConfig: ChartConfig = {

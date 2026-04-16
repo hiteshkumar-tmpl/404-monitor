@@ -20,6 +20,8 @@ import {
   Download,
   CheckCircle2,
   User,
+  Pause,
+  Play,
 } from "lucide-react";
 import { intervalLabel } from "@/lib/monitoring";
 import { Button } from "@/components/ui/button";
@@ -204,6 +206,15 @@ export default function Dashboard() {
         );
       case WebsiteStatus.error:
         return <Badge variant="destructive">Error</Badge>;
+      case WebsiteStatus.paused:
+        return (
+          <Badge
+            className="bg-slate-500/10 text-slate-300 hover:bg-slate-500/20 border-slate-400/20"
+            variant="outline"
+          >
+            Paused
+          </Badge>
+        );
       case WebsiteStatus.checking:
         return (
           <Badge
@@ -221,6 +232,29 @@ export default function Dashboard() {
 
   const exportCsv = () => {
     window.open("/api/dashboard/export.csv", "_blank", "noopener,noreferrer");
+  };
+  const togglePause = async (websiteId: number, shouldPause: boolean) => {
+    try {
+      await customFetch(`/api/websites/${websiteId}/${shouldPause ? "pause" : "resume"}`, {
+        method: "POST",
+      });
+      toast({
+        title: shouldPause ? "Monitoring paused" : "Monitoring resumed",
+        description: shouldPause
+          ? "Scheduled checks are paused for this property."
+          : "Scheduled checks are active again for this property.",
+      });
+      queryClient.invalidateQueries({
+        queryKey: getGetDashboardSummaryQueryKey(),
+      });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-insights"] });
+    } catch {
+      toast({
+        title: shouldPause ? "Pause failed" : "Resume failed",
+        description: "Could not update monitoring state.",
+        variant: "destructive",
+      });
+    }
   };
   const sectionNavigation = [
     { id: "dashboard-overview", label: "Overview" },
@@ -629,6 +663,28 @@ export default function Dashboard() {
                                 View
                               </Button>
                             </Link>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-muted-foreground hover:text-foreground"
+                              onClick={() =>
+                                togglePause(
+                                  website.websiteId,
+                                  website.status !== WebsiteStatus.paused,
+                                )
+                              }
+                              title={
+                                website.status === WebsiteStatus.paused
+                                  ? "Resume monitoring"
+                                  : "Pause monitoring"
+                              }
+                            >
+                              {website.status === WebsiteStatus.paused ? (
+                                <Play className="w-4 h-4" />
+                              ) : (
+                                <Pause className="w-4 h-4" />
+                              )}
+                            </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button
