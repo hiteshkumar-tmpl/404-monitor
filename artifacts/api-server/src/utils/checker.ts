@@ -396,24 +396,42 @@ export async function checkWebsite(
 
       const recentHistory = history.filter((h) => h.changedAt >= since);
 
-      const brokenUrls = recentHistory
-        .filter((h) => h.wasBroken && !h.becameFixed)
-        .map((h) => h.url);
-      const fixedUrls = recentHistory
-        .filter((h) => h.becameFixed)
-        .map((h) => h.url);
+      const uniqueBrokenUrls = new Set<string>();
+      const uniqueFixedUrls = new Set<string>();
+      for (const entry of recentHistory) {
+        if (entry.wasBroken && !entry.becameFixed) {
+          uniqueBrokenUrls.add(entry.url);
+        }
+        if (entry.becameFixed) {
+          uniqueFixedUrls.add(entry.url);
+        }
+      }
+      const brokenUrls = Array.from(uniqueBrokenUrls);
+      const fixedUrls = Array.from(uniqueFixedUrls);
 
       const currentBroken = urlRows.filter((u) => u.isBroken).length;
       const currentOk = urlRows.length - currentBroken;
 
       const dayMap = new Map<
         string,
-        { date: string; broke: number; fixed: number }
+        {
+          date: string;
+          broke: number;
+          fixed: number;
+          brokenSet: Set<string>;
+          fixedSet: Set<string>;
+        }
       >();
       for (let i = 0; i < days; i++) {
         const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
         const dateStr = d.toISOString().split("T")[0];
-        dayMap.set(dateStr, { date: dateStr, broke: 0, fixed: 0 });
+        dayMap.set(dateStr, {
+          date: dateStr,
+          broke: 0,
+          fixed: 0,
+          brokenSet: new Set<string>(),
+          fixedSet: new Set<string>(),
+        });
       }
 
       for (const entry of recentHistory) {
@@ -421,14 +439,20 @@ export async function checkWebsite(
         const day = dayMap.get(dateStr);
         if (day) {
           if (entry.becameFixed) {
-            day.fixed += 1;
+            day.fixedSet.add(entry.url);
           } else if (entry.wasBroken) {
-            day.broke += 1;
+            day.brokenSet.add(entry.url);
           }
         }
       }
 
-      const dayWiseBreakdown = Array.from(dayMap.values()).sort(
+      const dayWiseBreakdown = Array.from(dayMap.values())
+        .map((day) => ({
+          date: day.date,
+          broke: day.brokenSet.size,
+          fixed: day.fixedSet.size,
+        }))
+        .sort(
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
       );
 

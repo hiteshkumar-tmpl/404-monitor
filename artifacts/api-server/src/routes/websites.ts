@@ -742,15 +742,36 @@ router.get("/websites/:id/summary-data", async (req, res) => {
     const currentBroken = urls.filter((u) => u.isBroken);
     const currentOk = urls.filter((u) => !u.isBroken);
 
+    const uniqueUrls = (urls: string[]) => {
+      const seen = new Set<string>();
+      const result: string[] = [];
+
+      for (const url of urls) {
+        if (seen.has(url)) continue;
+        seen.add(url);
+        result.push(url);
+      }
+
+      return result;
+    };
+
     const dayMap = new Map<
       string,
-      { date: string; broke: number; fixed: number }
+      {
+        date: string;
+        brokenSet: Set<string>;
+        fixedSet: Set<string>;
+      }
     >();
 
     for (let i = 0; i < days; i++) {
       const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
       const dateStr = d.toISOString().split("T")[0];
-      dayMap.set(dateStr, { date: dateStr, broke: 0, fixed: 0 });
+      dayMap.set(dateStr, {
+        date: dateStr,
+        brokenSet: new Set<string>(),
+        fixedSet: new Set<string>(),
+      });
     }
 
     for (const entry of statusHistory) {
@@ -758,26 +779,30 @@ router.get("/websites/:id/summary-data", async (req, res) => {
       const day = dayMap.get(dateStr);
       if (day) {
         if (entry.becameFixed) {
-          day.fixed += 1;
+          day.fixedSet.add(entry.url);
         } else if (entry.wasBroken) {
-          day.broke += 1;
+          day.brokenSet.add(entry.url);
         }
       }
     }
 
-    const dayWiseBreakdown = Array.from(dayMap.values()).sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-    );
+    const dayWiseBreakdown = Array.from(dayMap.values())
+      .map((day) => ({
+        date: day.date,
+        broke: day.brokenSet.size,
+        fixed: day.fixedSet.size,
+      }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    const recentlyBrokenUrls = statusHistory
-      .filter((h) => h.wasBroken && !h.becameFixed)
-      .map((h) => h.url)
-      .slice(0, 20);
+    const recentlyBrokenUrls = uniqueUrls(
+      statusHistory
+        .filter((h) => h.wasBroken && !h.becameFixed)
+        .map((h) => h.url),
+    ).slice(0, 20);
 
-    const recentlyFixedUrls = statusHistory
-      .filter((h) => h.becameFixed)
-      .map((h) => h.url)
-      .slice(0, 20);
+    const recentlyFixedUrls = uniqueUrls(
+      statusHistory.filter((h) => h.becameFixed).map((h) => h.url),
+    ).slice(0, 20);
 
     const interval =
       website.alertSummaryInterval === "custom"
